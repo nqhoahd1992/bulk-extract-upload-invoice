@@ -1,0 +1,427 @@
+{
+  "properties": {
+    "connectionReferences": {
+      "shared_sharepointonline": {
+        "api": {
+          "name": "shared_sharepointonline"
+        },
+        "connection": {
+          "connectionReferenceLogicalName": "mbc_sharedsharepointonline_7c899"
+        },
+        "runtimeSource": "embedded"
+      }
+    },
+    "definition": {
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$authentication": {
+          "defaultValue": {},
+          "type": "SecureObject"
+        },
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
+        }
+      },
+      "triggers": {
+        "manual": {
+          "type": "Request",
+          "kind": "PowerAppV2",
+          "inputs": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "description": "invoiceLink",
+                  "title": "invoiceLink",
+                  "type": "string",
+                  "x-ms-content-hint": "TEXT",
+                  "x-ms-dynamically-added": true
+                },
+                "number": {
+                  "description": "requestId",
+                  "title": "requestId",
+                  "type": "number",
+                  "x-ms-content-hint": "NUMBER",
+                  "x-ms-dynamically-added": true
+                }
+              },
+              "required": [
+                "text",
+                "number"
+              ]
+            }
+          },
+          "metadata": {
+            "operationMetadataId": "fd13fcfd-3e18-47aa-a186-af7780faccd8"
+          }
+        }
+      },
+      "actions": {
+        "Get_AppConfig": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "parameters": {
+              "dataset": "https://maxbiocare.sharepoint.com/sites/Powerapps",
+              "table": "439c210d-faec-4949-878a-2888ee620ff1",
+              "$filter": "Title eq 'OCR_Config'",
+              "$top": 1
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+              "operationId": "GetItems",
+              "connectionName": "shared_sharepointonline"
+            }
+          },
+          "runAfter": {},
+          "metadata": {
+            "operationMetadataId": "edaa84a2-ea4e-414c-b54a-c1395055d1c9"
+          }
+        },
+        "Get_Token": {
+          "type": "Http",
+          "inputs": {
+            "uri": "https://ocr.mbcstaging.com/api/auth/token",
+            "method": "POST",
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "client_credentials": "refresh_token",
+              "refresh_token": "@{first(body('Get_AppConfig')?['value'])?['RefreshToken']}",
+              "client_id": "@{first(body('Get_AppConfig')?['value'])?['ClientId']}",
+              "client_secret": "@{first(body('Get_AppConfig')?['value'])?['ClientSecret']}"
+            }
+          },
+          "runAfter": {
+            "Get_AppConfig": [
+              "Succeeded"
+            ]
+          },
+          "runtimeConfiguration": {
+            "contentTransfer": {
+              "transferMode": "Chunked"
+            }
+          },
+          "metadata": {
+            "operationMetadataId": "2fc777fb-f44d-4f6b-8eac-12306224779e"
+          }
+        },
+        "Parse_Token_Response": {
+          "type": "ParseJson",
+          "inputs": {
+            "content": "@body('Get_Token')",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "access_token": {
+                  "type": "string"
+                },
+                "refresh_token": {
+                  "type": "string"
+                },
+                "expires_in": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "runAfter": {
+            "Get_Token": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "8a94b494-beec-4df2-a406-9de5189034e1"
+          }
+        },
+        "Update_RefreshToken": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "parameters": {
+              "dataset": "https://maxbiocare.sharepoint.com/sites/Powerapps",
+              "table": "439c210d-faec-4949-878a-2888ee620ff1",
+              "id": "@first(body('Get_AppConfig')?['value'])?['ID']"
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+              "operationId": "PatchItem",
+              "connectionName": "shared_sharepointonline"
+            }
+          },
+          "runAfter": {
+            "Parse_Token_Response": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "d57f4328-8957-42c4-b392-bc7f3de2210b"
+          }
+        },
+        "Extract_Invoice": {
+          "type": "Http",
+          "inputs": {
+            "uri": "https://ocr.mbcstaging.com/api/v1/extract/from-base64",
+            "method": "POST",
+            "headers": {
+              "Content-Type": "application/json",
+              "Authorization": "Bearer @{body('Parse_Token_Response')?['access_token']}"
+            },
+            "body": {
+              "filename": "",
+              "content": "@{base64(body('Get_Invoice_File_Content'))}"
+            }
+          },
+          "runAfter": {
+            "Get_Invoice_File_Content": [
+              "Succeeded"
+            ]
+          },
+          "runtimeConfiguration": {
+            "contentTransfer": {
+              "transferMode": "Chunked"
+            }
+          },
+          "metadata": {
+            "operationMetadataId": "54765a38-e6ab-43e0-8c55-4ec9091bb942"
+          }
+        },
+        "Parse_Invoice_Response": {
+          "type": "ParseJson",
+          "inputs": {
+            "content": "@body('Extract_Invoice')",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "invoice_number": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "invoice_date": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "total_amount": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "tax_amount": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "supplier_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "supplier_abn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "billed_to": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "currency": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "confidence_score": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "job_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "attention": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "runAfter": {
+            "Extract_Invoice": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "8c23e3a7-ca1d-4b6e-be31-5979ecc86e85"
+          }
+        },
+        "Compose_Filename": {
+          "type": "Compose",
+          "inputs": "@concat(\r\n  if(empty(body('Parse_Invoice_Response')?['invoice_date']), '', formatDateTime(body('Parse_Invoice_Response')?['invoice_date'], 'yyyyMMdd')),\r\n  if(empty(body('Parse_Invoice_Response')?['supplier_name']), '', concat(' - ', body('Parse_Invoice_Response')?['supplier_name'])),\r\n  if(empty(body('Parse_Invoice_Response')?['billed_to']), '', concat(' - ', body('Parse_Invoice_Response')?['billed_to'])),\r\n  if(empty(body('Parse_Invoice_Response')?['invoice_number']), '', concat(' - ', body('Parse_Invoice_Response')?['invoice_number'])),\r\n  if(empty(body('Parse_Invoice_Response')?['attention']), '', concat(' - ', body('Parse_Invoice_Response')?['attention'])),\r\n  if(equals(body('Parse_Invoice_Response')?['total_amount'], null), '', concat(' - ', body('Parse_Invoice_Response')?['currency'], string(body('Parse_Invoice_Response')?['total_amount']))),\r\n  if(equals(body('Parse_Invoice_Response')?['tax_amount'], null), '', concat(' - GST ', body('Parse_Invoice_Response')?['currency'], string(body('Parse_Invoice_Response')?['tax_amount']))),\r\n  '.', outputs('Compose_File_Extension')\r\n)",
+          "runAfter": {
+            "Parse_Invoice_Response": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "c9924f00-050d-4870-bd24-53f2636100e4"
+          }
+        },
+        "Compose_Sanitized_Filename": {
+          "type": "Compose",
+          "inputs": "@replace(replace(replace(replace(replace(replace(replace(replace(outputs('Compose_Filename'), '\\', ''), '/', ''), ':', ''), '*', ''), '?', ''), '\"', ''), '<', ''), '>', '')",
+          "runAfter": {
+            "Compose_Filename": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "01229b30-199e-4f65-af70-9a0309767439"
+          }
+        },
+        "Response": {
+          "type": "Response",
+          "kind": "Http",
+          "inputs": {
+            "statusCode": 200,
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "invoiceNumber": "@{body('Parse_Invoice_Response')?['invoice_number']}",
+              "invoiceDate": "@{body('Parse_Invoice_Response')?['invoice_date']}",
+              "totalAmount": "@body('Parse_Invoice_Response')?['total_amount']",
+              "taxAmount": "@body('Parse_Invoice_Response')?['tax_amount']",
+              "supplierName": "@{body('Parse_Invoice_Response')?['supplier_name']}",
+              "supplierABN": "@{body('Parse_Invoice_Response')?['supplier_abn']}",
+              "billedTo": "@{body('Parse_Invoice_Response')?['billed_to']}",
+              "currency": "@{body('Parse_Invoice_Response')?['currency']}",
+              "confidenceScore": "@body('Parse_Invoice_Response')?['confidence_score']",
+              "jobId": "@{body('Parse_Invoice_Response')?['job_id']}",
+              "attention": "@{body('Parse_Invoice_Response')?['attention']}",
+              "suggestedFilename": "@{outputs('Compose_Sanitized_Filename')}"
+            },
+            "schema": {
+              "type": "object",
+              "properties": {
+                "invoiceNumber": {
+                  "type": "string"
+                },
+                "invoiceDate": {
+                  "type": "string"
+                },
+                "totalAmount": {
+                  "type": "number"
+                },
+                "taxAmount": {
+                  "type": "number"
+                },
+                "supplierName": {
+                  "type": "string"
+                },
+                "supplierABN": {
+                  "type": "string"
+                },
+                "billedTo": {
+                  "type": "string"
+                },
+                "currency": {
+                  "type": "string"
+                },
+                "confidenceScore": {
+                  "type": "number"
+                },
+                "jobId": {
+                  "type": "string"
+                },
+                "attention": {
+                  "type": "string"
+                },
+                "suggestedFilename": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "runAfter": {
+            "Compose_Sanitized_Filename": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "33427b34-850a-4428-8c95-50120165ec37"
+          }
+        },
+        "Compose_File_Path": {
+          "type": "Compose",
+          "inputs": "@if(contains(triggerBody()?['text'], 'AllItems.aspx'), replace(uriComponentToString(split(split(triggerBody()?['text'], '&id=')[1], '&')[0]), '#', '%23'), replace(triggerBody()?['text'], 'https://maxbiocare.sharepoint.com', ''))",
+          "runAfter": {
+            "Update_RefreshToken": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "274fff9c-fc3b-473b-9d7c-c86526abaea1"
+          }
+        },
+        "Get_Invoice_File_Content": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "parameters": {
+              "dataset": "https://maxbiocare.sharepoint.com/sites/Powerapps",
+              "parameters/method": "GET",
+              "parameters/uri": "@concat('_api/web/GetFileByServerRelativePath(decodedurl=', concat('''', outputs('Compose_File_Path'), ''''), ')/$value')",
+              "parameters/headers": {
+                "Accept": "application/octet-stream"
+              }
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+              "operationId": "HttpRequest",
+              "connectionName": "shared_sharepointonline"
+            }
+          },
+          "runAfter": {
+            "Compose_File_Extension": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "fa083a97-383e-432c-a538-5cbf90c4624d"
+          }
+        },
+        "Compose_File_Extension": {
+          "type": "Compose",
+          "inputs": "@last(split(last(split(outputs('Compose_File_Path'), '/')), '.'))",
+          "runAfter": {
+            "Compose_File_Path": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "fd739a20-9c28-43e2-9ff0-2f6ca4e03a7e"
+          }
+        }
+      }
+    },
+    "templateName": null
+  },
+  "schemaVersion": "1.0.0.0"
+}

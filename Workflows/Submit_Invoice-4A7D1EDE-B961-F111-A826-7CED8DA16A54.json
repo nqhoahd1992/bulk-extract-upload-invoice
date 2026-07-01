@@ -1,0 +1,588 @@
+{
+  "properties": {
+    "connectionReferences": {
+      "shared_sharepointonline": {
+        "api": {
+          "name": "shared_sharepointonline"
+        },
+        "connection": {
+          "connectionReferenceLogicalName": "mbc_sharedsharepointonline_7c899"
+        },
+        "runtimeSource": "invoker"
+      }
+    },
+    "definition": {
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$authentication": {
+          "defaultValue": {},
+          "type": "SecureObject"
+        },
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
+        }
+      },
+      "triggers": {
+        "manual": {
+          "type": "Request",
+          "kind": "PowerAppV2",
+          "inputs": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "description": "invoiceLink",
+                  "title": "Text",
+                  "type": "string",
+                  "x-ms-content-hint": "TEXT",
+                  "x-ms-dynamically-added": true
+                },
+                "number": {
+                  "description": "requestId",
+                  "title": "Number",
+                  "type": "number",
+                  "x-ms-content-hint": "NUMBER",
+                  "x-ms-dynamically-added": true
+                },
+                "text_1": {
+                  "description": "newFilename",
+                  "title": "Text 1",
+                  "type": "string",
+                  "x-ms-content-hint": "TEXT",
+                  "x-ms-dynamically-added": true
+                },
+                "text_2": {
+                  "description": "invoiceDate",
+                  "title": "Text 2",
+                  "type": "string",
+                  "x-ms-content-hint": "TEXT",
+                  "x-ms-dynamically-added": true
+                },
+                "text_3": {
+                  "description": "supplierName",
+                  "title": "Text 3",
+                  "type": "string",
+                  "x-ms-content-hint": "TEXT",
+                  "x-ms-dynamically-added": true
+                },
+                "text_4": {
+                  "description": "billedTo",
+                  "title": "Text 4",
+                  "type": "string",
+                  "x-ms-content-hint": "TEXT",
+                  "x-ms-dynamically-added": true
+                },
+                "text_5": {
+                  "description": "invoiceNumber",
+                  "title": "Text 5",
+                  "type": "string",
+                  "x-ms-content-hint": "TEXT",
+                  "x-ms-dynamically-added": true
+                },
+                "number_1": {
+                  "description": "totalAmount",
+                  "title": "Number 1",
+                  "type": "number",
+                  "x-ms-content-hint": "NUMBER",
+                  "x-ms-dynamically-added": true
+                },
+                "number_2": {
+                  "description": "taxAmount",
+                  "title": "Number 2",
+                  "type": "number",
+                  "x-ms-content-hint": "NUMBER",
+                  "x-ms-dynamically-added": true
+                },
+                "text_6": {
+                  "description": "currency",
+                  "title": "Text 6",
+                  "type": "string",
+                  "x-ms-content-hint": "TEXT",
+                  "x-ms-dynamically-added": true
+                },
+                "text_7": {
+                  "description": "jobId",
+                  "title": "Text 7",
+                  "type": "string",
+                  "x-ms-content-hint": "TEXT",
+                  "x-ms-dynamically-added": true
+                },
+                "number_3": {
+                  "description": "confidenceScore",
+                  "title": "Number 3",
+                  "type": "number",
+                  "x-ms-content-hint": "NUMBER",
+                  "x-ms-dynamically-added": true
+                },
+                "text_8": {
+                  "description": "attention",
+                  "title": "Text 8",
+                  "type": "string",
+                  "x-ms-content-hint": "TEXT",
+                  "x-ms-dynamically-added": true
+                },
+                "text_9": {
+                  "description": "description",
+                  "title": "Text 9",
+                  "type": "string",
+                  "x-ms-content-hint": "TEXT",
+                  "x-ms-dynamically-added": true
+                },
+                "text_10": {
+                  "description": "text_invoice_region",
+                  "title": "Text 10",
+                  "type": "string",
+                  "x-ms-content-hint": "TEXT",
+                  "x-ms-dynamically-added": true
+                },
+                "text_11": {
+                  "description": "supplierABN",
+                  "title": "Text 11",
+                  "type": "string",
+                  "x-ms-content-hint": "TEXT",
+                  "x-ms-dynamically-added": true
+                }
+              },
+              "required": [
+                "text",
+                "number",
+                "text_1",
+                "text_2",
+                "text_3",
+                "text_4",
+                "text_5",
+                "number_1",
+                "number_2",
+                "text_6",
+                "text_7",
+                "number_3",
+                "text_8",
+                "text_9",
+                "text_10",
+                "text_11"
+              ]
+            }
+          },
+          "metadata": {
+            "operationMetadataId": "099c5262-b699-4f04-9413-40d5b9dab15e"
+          }
+        }
+      },
+      "actions": {
+        "Compose_File_Path": {
+          "type": "Compose",
+          "inputs": "@replace(if(contains(triggerBody()?['text'], 'AllItems.aspx'), replace(uriComponentToString(split(split(triggerBody()?['text'], '&id=')[1], '&')[0]), '#', '%23'), replace(triggerBody()?['text'], 'https://maxbiocare.sharepoint.com', '')), '#', '%23')",
+          "runAfter": {}
+        },
+        "Condition": {
+          "type": "If",
+          "expression": {
+            "and": [
+              {
+                "equals": [
+                  "@contains(triggerBody()?['text'], '/Lists/Procurement_Requests/Attachments/')",
+                  true
+                ]
+              }
+            ]
+          },
+          "actions": {
+            "Compose_File_Extension_Attachment": {
+              "type": "Compose",
+              "inputs": "@last(split(last(split(triggerBody()?['text'], '/')), '.'))"
+            },
+            "Compose_Target_Folder_Attachment": {
+              "type": "Compose",
+              "inputs": "@if(equals(triggerBody()?['text_10'], 'Australia'), 'AU_Invoices', if(equals(triggerBody()?['text_10'], 'Singapore'), 'SG_Invoices', 'MY_Invoices'))",
+              "runAfter": {
+                "Compose_File_Extension_Attachment": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Get_Attachment_Content": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "parameters": {
+                  "dataset": "https://maxbiocare.sharepoint.com/sites/Powerapps",
+                  "parameters/method": "GET",
+                  "parameters/uri": "@concat('_api/web/GetFileByServerRelativePath(decodedurl=''', outputs('Compose_File_Path'), ''')/$value')",
+                  "parameters/headers": {
+                    "Accept": "application/octet-stream"
+                  }
+                },
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                  "operationId": "HttpRequest",
+                  "connectionName": "shared_sharepointonline"
+                }
+              },
+              "runAfter": {
+                "Compose_Target_Folder_Attachment": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Create_Invoice_File": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "parameters": {
+                  "dataset": "https://maxbiocare.sharepoint.com/sites/Powerapps",
+                  "folderPath": "@outputs('Compose_Target_Folder_Attachment')",
+                  "name": "@{triggerBody()?['text_1']}.@{outputs('Compose_File_Extension_Attachment')}",
+                  "body": "@body('Get_Attachment_Content')",
+                  "overwrite": true
+                },
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                  "operationId": "CreateFile",
+                  "connectionName": "shared_sharepointonline"
+                }
+              },
+              "runAfter": {
+                "Get_Attachment_Content": [
+                  "Succeeded"
+                ]
+              },
+              "runtimeConfiguration": {
+                "contentTransfer": {
+                  "transferMode": "Chunked"
+                }
+              }
+            },
+            "Get_Invoice_File_Metadata_Attachment": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "parameters": {
+                  "dataset": "https://maxbiocare.sharepoint.com/sites/Powerapps",
+                  "parameters/method": "GET",
+                  "parameters/uri": "@concat('_api/web/GetFileByServerRelativePath(decodedurl=''/sites/Powerapps/', outputs('Compose_Target_Folder_Attachment'), '/', triggerBody()?['text_1'], '.', outputs('Compose_File_Extension_Attachment'), ''')/?$select=ServerRelativeUrl')",
+                  "parameters/headers": {
+                    "Accept": "application/json;odata=nometadata"
+                  }
+                },
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                  "operationId": "HttpRequest",
+                  "connectionName": "shared_sharepointonline"
+                }
+              },
+              "runAfter": {
+                "Create_Invoice_File": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Procurement_InvoiceData_Attachment": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "parameters": {
+                  "dataset": "https://maxbiocare.sharepoint.com/sites/Powerapps",
+                  "table": "3a7218e7-e10f-406a-9a8a-d4cbbb2ea82c",
+                  "item/Title": "@{triggerBody()?['text_1']}.@{outputs('Compose_File_Extension_Attachment')}",
+                  "item/InvoiceNumber": "@triggerBody()?['text_5']",
+                  "item/InvoiceDate": "@triggerBody()?['text_2']",
+                  "item/VendorName": "@triggerBody()?['text_3']",
+                  "item/ABN": "@triggerBody()?['text_11']",
+                  "item/BilledTo": "@triggerBody()?['text_4']",
+                  "item/Attention": "@triggerBody()?['text_8']",
+                  "item/TotalAmount": "@triggerBody()?['number_1']",
+                  "item/GSTAmount": "@triggerBody()?['number_2']",
+                  "item/Currency": "@triggerBody()?['text_6']",
+                  "item/Description": "@triggerBody()?['text_9']",
+                  "item/RequestID/Id": "@triggerBody()?['number']",
+                  "item/RequestIDText": "@triggerBody()?['number']",
+                  "item/InvoiceLink": "@concat('https://maxbiocare.sharepoint.com/sites/Powerapps/', outputs('Compose_Target_Folder_Attachment'), '/', triggerBody()?['text_1'], '.', outputs('Compose_File_Extension_Attachment'))",
+                  "item/ParsedAt": "@utcNow()"
+                },
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                  "operationId": "PostItem",
+                  "connectionName": "shared_sharepointonline"
+                }
+              },
+              "runAfter": {
+                "Get_Invoice_File_Metadata_Attachment": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Get_Procurement_Request_Attachment": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "parameters": {
+                  "dataset": "https://maxbiocare.sharepoint.com/sites/Powerapps",
+                  "table": "d0bdfe50-6651-4e3f-8c95-0d9738cc482e",
+                  "id": "@triggerBody()?['number']"
+                },
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                  "operationId": "GetItem",
+                  "connectionName": "shared_sharepointonline"
+                }
+              },
+              "runAfter": {
+                "Procurement_InvoiceData_Attachment": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Update_OfficialInvoiceLink_Attachment_": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "parameters": {
+                  "dataset": "https://maxbiocare.sharepoint.com/sites/Powerapps",
+                  "table": "d0bdfe50-6651-4e3f-8c95-0d9738cc482e",
+                  "id": "@outputs('Get_Procurement_Request_Attachment')?['body/ID']",
+                  "item/RequesterEmail": "@outputs('Get_Procurement_Request_Attachment')?['body/RequesterEmail']",
+                  "item/ProcurementDescription": "@outputs('Get_Procurement_Request_Attachment')?['body/ProcurementDescription']",
+                  "item/EstimatedCost": "@outputs('Get_Procurement_Request_Attachment')?['body/EstimatedCost']",
+                  "item/RequiredDeliveryDate": "@outputs('Get_Procurement_Request_Attachment')?['body/RequiredDeliveryDate']",
+                  "item/OfficialInvoiceLink": "@concat('https://maxbiocare.sharepoint.com/sites/Powerapps/', outputs('Compose_Target_Folder_Attachment'), '/', triggerBody()?['text_1'], '.', outputs('Compose_File_Extension_Attachment'))"
+                },
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                  "operationId": "PatchItem",
+                  "connectionName": "shared_sharepointonline"
+                }
+              },
+              "runAfter": {
+                "Get_Procurement_Request_Attachment": [
+                  "Succeeded"
+                ]
+              }
+            }
+          },
+          "else": {
+            "actions": {
+              "Get_File_ID": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://maxbiocare.sharepoint.com/sites/Powerapps",
+                    "parameters/method": "GET",
+                    "parameters/uri": "@concat('_api/web/GetFileByServerRelativePath(decodedurl=''', outputs('Compose_File_Path'), ''')/ListItemAllFields?$select=Id,FileLeafRef')",
+                    "parameters/headers": {
+                      "Accept": "application/json;odata=nometadata",
+                      "Cache-Control": "no-cache"
+                    }
+                  },
+                  "host": {
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                    "operationId": "HttpRequest",
+                    "connectionName": "shared_sharepointonline"
+                  }
+                }
+              },
+              "Compose_File_Extension": {
+                "type": "Compose",
+                "inputs": "@last(split(body('Get_File_ID')?['FileLeafRef'], '.'))",
+                "runAfter": {
+                  "Get_File_ID": [
+                    "Succeeded"
+                  ]
+                }
+              },
+              "Rename_Invoice_File": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://maxbiocare.sharepoint.com/sites/Powerapps",
+                    "parameters/method": "POST",
+                    "parameters/uri": "@concat('_api/web/lists/getbytitle(''Invoices Staging'')/items(', string(body('Get_File_ID')?['Id']), ')')",
+                    "parameters/headers": {
+                      "Accept": "application/json;odata=nometadata",
+                      "Content-Type": "application/json;odata=nometadata",
+                      "IF-MATCH": "*",
+                      "X-HTTP-Method": "MERGE"
+                    },
+                    "parameters/body": "{\n  \"FileLeafRef\": \"@{triggerBody()?['text_1']}.@{outputs('Compose_File_Extension')}\"\n}"
+                  },
+                  "host": {
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                    "operationId": "HttpRequest",
+                    "connectionName": "shared_sharepointonline"
+                  }
+                },
+                "runAfter": {
+                  "Compose_File_Extension": [
+                    "Succeeded"
+                  ]
+                }
+              },
+              "Get_Invoice_File_Metadata_New": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://maxbiocare.sharepoint.com/sites/Powerapps",
+                    "parameters/method": "GET",
+                    "parameters/uri": "@concat('_api/web/GetFileByServerRelativePath(decodedurl=''/sites/Powerapps/Invoice/', triggerBody()?['text_1'], '.', outputs('Compose_File_Extension'), ''')?$select=ServerRelativeUrl,Name')",
+                    "parameters/headers": {
+                      "Accept": "application/json;odata=nometadata"
+                    }
+                  },
+                  "host": {
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                    "operationId": "HttpRequest",
+                    "connectionName": "shared_sharepointonline"
+                  }
+                },
+                "runAfter": {
+                  "Rename_Invoice_File": [
+                    "Succeeded"
+                  ]
+                }
+              },
+              "Compose_Target_Folder": {
+                "type": "Compose",
+                "inputs": "@if(equals(triggerBody()?['text_10'], 'Australia'), 'AU_Invoices', if(equals(triggerBody()?['text_10'], 'Singapore'), 'SG_Invoices', 'MY_Invoices'))",
+                "runAfter": {
+                  "Get_Invoice_File_Metadata_New": [
+                    "Succeeded"
+                  ]
+                }
+              },
+              "Move_Invoice_File": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://maxbiocare.sharepoint.com/sites/Powerapps",
+                    "parameters/sourceFileId": "@replace(body('Get_Invoice_File_Metadata_New')?['ServerRelativeUrl'], '/sites/Powerapps', '')",
+                    "parameters/destinationDataset": "https://maxbiocare.sharepoint.com/sites/Powerapps",
+                    "parameters/destinationFolderPath": "@outputs('Compose_Target_Folder')",
+                    "parameters/nameConflictBehavior": 0
+                  },
+                  "host": {
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                    "operationId": "MoveFileAsync",
+                    "connectionName": "shared_sharepointonline"
+                  }
+                },
+                "runAfter": {
+                  "Compose_Target_Folder": [
+                    "Succeeded"
+                  ]
+                }
+              },
+              "Procurement_InvoiceData": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://maxbiocare.sharepoint.com/sites/Powerapps",
+                    "table": "3a7218e7-e10f-406a-9a8a-d4cbbb2ea82c",
+                    "item/Title": "@{triggerBody()?['text_1']}.@{outputs('Compose_File_Extension')}",
+                    "item/InvoiceNumber": "@triggerBody()?['text_5']",
+                    "item/InvoiceDate": "@triggerBody()?['text_2']",
+                    "item/VendorName": "@triggerBody()?['text_3']",
+                    "item/ABN": "@triggerBody()?['text_11']",
+                    "item/BilledTo": "@triggerBody()?['text_4']",
+                    "item/Attention": "@triggerBody()?['text_8']",
+                    "item/TotalAmount": "@triggerBody()?['number_1']",
+                    "item/GSTAmount": "@triggerBody()?['number_2']",
+                    "item/Currency": "@triggerBody()?['text_6']",
+                    "item/Description": "@triggerBody()?['text_9']",
+                    "item/RequestID/Id": "@triggerBody()?['number']",
+                    "item/RequestIDText": "@triggerBody()?['number']",
+                    "item/InvoiceLink": "@concat('https://maxbiocare.sharepoint.com/sites/Powerapps/', outputs('Compose_Target_Folder'), '/', body('Get_Invoice_File_Metadata_New')?['Name'])",
+                    "item/ParsedAt": "@utcNow()"
+                  },
+                  "host": {
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                    "operationId": "PostItem",
+                    "connectionName": "shared_sharepointonline"
+                  }
+                },
+                "runAfter": {
+                  "Move_Invoice_File": [
+                    "Succeeded"
+                  ]
+                }
+              },
+              "Get_Procurement_Request": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://maxbiocare.sharepoint.com/sites/Powerapps",
+                    "table": "d0bdfe50-6651-4e3f-8c95-0d9738cc482e",
+                    "id": "@triggerBody()?['number']"
+                  },
+                  "host": {
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                    "operationId": "GetItem",
+                    "connectionName": "shared_sharepointonline"
+                  }
+                },
+                "runAfter": {
+                  "Procurement_InvoiceData": [
+                    "Succeeded"
+                  ]
+                }
+              },
+              "Update_OfficialInvoiceLink": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "dataset": "https://maxbiocare.sharepoint.com/sites/Powerapps",
+                    "table": "d0bdfe50-6651-4e3f-8c95-0d9738cc482e",
+                    "id": "@outputs('Get_Procurement_Request')?['body/ID']\n",
+                    "item/RequesterEmail": "@outputs('Get_Procurement_Request')?['body/RequesterEmail']",
+                    "item/ProcurementDescription": "@outputs('Get_Procurement_Request')?['body/ProcurementDescription']",
+                    "item/EstimatedCost": "@outputs('Get_Procurement_Request')?['body/EstimatedCost']",
+                    "item/RequiredDeliveryDate": "@outputs('Get_Procurement_Request')?['body/RequiredDeliveryDate']",
+                    "item/OfficialInvoiceLink": "@concat('https://maxbiocare.sharepoint.com/sites/Powerapps/', outputs('Compose_Target_Folder'), '/', body('Get_Invoice_File_Metadata_New')?['Name'])"
+                  },
+                  "host": {
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                    "operationId": "PatchItem",
+                    "connectionName": "shared_sharepointonline"
+                  }
+                },
+                "runAfter": {
+                  "Get_Procurement_Request": [
+                    "Succeeded"
+                  ]
+                }
+              }
+            }
+          },
+          "runAfter": {
+            "Compose_File_Path": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Respond_to_a_Power_App_or_flow": {
+          "type": "Response",
+          "kind": "PowerApp",
+          "inputs": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "newinvoicelink": {
+                  "title": "newInvoiceLink",
+                  "type": "string",
+                  "x-ms-content-hint": "TEXT",
+                  "x-ms-dynamically-added": true
+                }
+              },
+              "additionalProperties": {}
+            },
+            "statusCode": 200,
+            "body": {
+              "newinvoicelink": "@{concat('https://maxbiocare.sharepoint.com', body('Get_Invoice_File_Metadata_New')?['ServerRelativeUrl'])}"
+            }
+          },
+          "runAfter": {
+            "Condition": [
+              "Succeeded"
+            ]
+          }
+        }
+      }
+    },
+    "templateName": null
+  },
+  "schemaVersion": "1.0.0.0"
+}
