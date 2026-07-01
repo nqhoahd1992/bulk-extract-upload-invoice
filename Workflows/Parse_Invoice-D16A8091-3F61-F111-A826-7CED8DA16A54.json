@@ -79,306 +79,28 @@
             "operationMetadataId": "edaa84a2-ea4e-414c-b54a-c1395055d1c9"
           }
         },
-        "Get_Token": {
-          "type": "Http",
-          "inputs": {
-            "uri": "https://ocr.mbcstaging.com/api/auth/token",
-            "method": "POST",
-            "headers": {
-              "Content-Type": "application/json"
-            },
-            "body": {
-              "client_credentials": "refresh_token",
-              "refresh_token": "@{first(body('Get_AppConfig')?['value'])?['RefreshToken']}",
-              "client_id": "@{first(body('Get_AppConfig')?['value'])?['ClientId']}",
-              "client_secret": "@{first(body('Get_AppConfig')?['value'])?['ClientSecret']}"
-            }
-          },
+        "Compose_File_Path": {
+          "type": "Compose",
+          "inputs": "@if(contains(triggerBody()?['text'], 'AllItems.aspx'), replace(uriComponentToString(split(split(triggerBody()?['text'], '&id=')[1], '&')[0]), '#', '%23'), replace(triggerBody()?['text'], 'https://maxbiocare.sharepoint.com', ''))",
           "runAfter": {
             "Get_AppConfig": [
               "Succeeded"
             ]
           },
-          "runtimeConfiguration": {
-            "contentTransfer": {
-              "transferMode": "Chunked"
-            }
-          },
-          "metadata": {
-            "operationMetadataId": "2fc777fb-f44d-4f6b-8eac-12306224779e"
-          }
-        },
-        "Parse_Token_Response": {
-          "type": "ParseJson",
-          "inputs": {
-            "content": "@body('Get_Token')",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "access_token": {
-                  "type": "string"
-                },
-                "refresh_token": {
-                  "type": "string"
-                },
-                "expires_in": {
-                  "type": "integer"
-                }
-              }
-            }
-          },
-          "runAfter": {
-            "Get_Token": [
-              "Succeeded"
-            ]
-          },
-          "metadata": {
-            "operationMetadataId": "8a94b494-beec-4df2-a406-9de5189034e1"
-          }
-        },
-        "Update_RefreshToken": {
-          "type": "OpenApiConnection",
-          "inputs": {
-            "parameters": {
-              "dataset": "https://maxbiocare.sharepoint.com/sites/Powerapps",
-              "table": "439c210d-faec-4949-878a-2888ee620ff1",
-              "id": "@first(body('Get_AppConfig')?['value'])?['ID']"
-            },
-            "host": {
-              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
-              "operationId": "PatchItem",
-              "connectionName": "shared_sharepointonline"
-            }
-          },
-          "runAfter": {
-            "Parse_Token_Response": [
-              "Succeeded"
-            ]
-          },
-          "metadata": {
-            "operationMetadataId": "d57f4328-8957-42c4-b392-bc7f3de2210b"
-          }
-        },
-        "Extract_Invoice": {
-          "type": "Http",
-          "inputs": {
-            "uri": "https://ocr.mbcstaging.com/api/v1/extract/from-base64",
-            "method": "POST",
-            "headers": {
-              "Content-Type": "application/json",
-              "Authorization": "Bearer @{body('Parse_Token_Response')?['access_token']}"
-            },
-            "body": {
-              "filename": "",
-              "content": "@{base64(body('Get_Invoice_File_Content'))}"
-            }
-          },
-          "runAfter": {
-            "Get_Invoice_File_Content": [
-              "Succeeded"
-            ]
-          },
-          "runtimeConfiguration": {
-            "contentTransfer": {
-              "transferMode": "Chunked"
-            }
-          },
-          "metadata": {
-            "operationMetadataId": "54765a38-e6ab-43e0-8c55-4ec9091bb942"
-          }
-        },
-        "Parse_Invoice_Response": {
-          "type": "ParseJson",
-          "inputs": {
-            "content": "@body('Extract_Invoice')",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "invoice_number": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "invoice_date": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "total_amount": {
-                  "type": [
-                    "number",
-                    "null"
-                  ]
-                },
-                "tax_amount": {
-                  "type": [
-                    "number",
-                    "null"
-                  ]
-                },
-                "supplier_name": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "supplier_abn": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "billed_to": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "currency": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "confidence_score": {
-                  "type": [
-                    "number",
-                    "null"
-                  ]
-                },
-                "job_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "attention": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                }
-              }
-            }
-          },
-          "runAfter": {
-            "Extract_Invoice": [
-              "Succeeded"
-            ]
-          },
-          "metadata": {
-            "operationMetadataId": "8c23e3a7-ca1d-4b6e-be31-5979ecc86e85"
-          }
-        },
-        "Compose_Filename": {
-          "type": "Compose",
-          "inputs": "@concat(\r\n  if(empty(body('Parse_Invoice_Response')?['invoice_date']), '', formatDateTime(body('Parse_Invoice_Response')?['invoice_date'], 'yyyyMMdd')),\r\n  if(empty(body('Parse_Invoice_Response')?['supplier_name']), '', concat(' - ', body('Parse_Invoice_Response')?['supplier_name'])),\r\n  if(empty(body('Parse_Invoice_Response')?['billed_to']), '', concat(' - ', body('Parse_Invoice_Response')?['billed_to'])),\r\n  if(empty(body('Parse_Invoice_Response')?['invoice_number']), '', concat(' - ', body('Parse_Invoice_Response')?['invoice_number'])),\r\n  if(empty(body('Parse_Invoice_Response')?['attention']), '', concat(' - ', body('Parse_Invoice_Response')?['attention'])),\r\n  if(equals(body('Parse_Invoice_Response')?['total_amount'], null), '', concat(' - ', body('Parse_Invoice_Response')?['currency'], string(body('Parse_Invoice_Response')?['total_amount']))),\r\n  if(equals(body('Parse_Invoice_Response')?['tax_amount'], null), '', concat(' - GST ', body('Parse_Invoice_Response')?['currency'], string(body('Parse_Invoice_Response')?['tax_amount']))),\r\n  '.', outputs('Compose_File_Extension')\r\n)",
-          "runAfter": {
-            "Parse_Invoice_Response": [
-              "Succeeded"
-            ]
-          },
-          "metadata": {
-            "operationMetadataId": "c9924f00-050d-4870-bd24-53f2636100e4"
-          }
-        },
-        "Compose_Sanitized_Filename": {
-          "type": "Compose",
-          "inputs": "@replace(replace(replace(replace(replace(replace(replace(replace(outputs('Compose_Filename'), '\\', ''), '/', ''), ':', ''), '*', ''), '?', ''), '\"', ''), '<', ''), '>', '')",
-          "runAfter": {
-            "Compose_Filename": [
-              "Succeeded"
-            ]
-          },
-          "metadata": {
-            "operationMetadataId": "01229b30-199e-4f65-af70-9a0309767439"
-          }
-        },
-        "Response": {
-          "type": "Response",
-          "kind": "Http",
-          "inputs": {
-            "statusCode": 200,
-            "headers": {
-              "Content-Type": "application/json"
-            },
-            "body": {
-              "invoiceNumber": "@{body('Parse_Invoice_Response')?['invoice_number']}",
-              "invoiceDate": "@{body('Parse_Invoice_Response')?['invoice_date']}",
-              "totalAmount": "@body('Parse_Invoice_Response')?['total_amount']",
-              "taxAmount": "@body('Parse_Invoice_Response')?['tax_amount']",
-              "supplierName": "@{body('Parse_Invoice_Response')?['supplier_name']}",
-              "supplierABN": "@{body('Parse_Invoice_Response')?['supplier_abn']}",
-              "billedTo": "@{body('Parse_Invoice_Response')?['billed_to']}",
-              "currency": "@{body('Parse_Invoice_Response')?['currency']}",
-              "confidenceScore": "@body('Parse_Invoice_Response')?['confidence_score']",
-              "jobId": "@{body('Parse_Invoice_Response')?['job_id']}",
-              "attention": "@{body('Parse_Invoice_Response')?['attention']}",
-              "suggestedFilename": "@{outputs('Compose_Sanitized_Filename')}"
-            },
-            "schema": {
-              "type": "object",
-              "properties": {
-                "invoiceNumber": {
-                  "type": "string"
-                },
-                "invoiceDate": {
-                  "type": "string"
-                },
-                "totalAmount": {
-                  "type": "number"
-                },
-                "taxAmount": {
-                  "type": "number"
-                },
-                "supplierName": {
-                  "type": "string"
-                },
-                "supplierABN": {
-                  "type": "string"
-                },
-                "billedTo": {
-                  "type": "string"
-                },
-                "currency": {
-                  "type": "string"
-                },
-                "confidenceScore": {
-                  "type": "number"
-                },
-                "jobId": {
-                  "type": "string"
-                },
-                "attention": {
-                  "type": "string"
-                },
-                "suggestedFilename": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "runAfter": {
-            "Compose_Sanitized_Filename": [
-              "Succeeded"
-            ]
-          },
-          "metadata": {
-            "operationMetadataId": "33427b34-850a-4428-8c95-50120165ec37"
-          }
-        },
-        "Compose_File_Path": {
-          "type": "Compose",
-          "inputs": "@if(contains(triggerBody()?['text'], 'AllItems.aspx'), replace(uriComponentToString(split(split(triggerBody()?['text'], '&id=')[1], '&')[0]), '#', '%23'), replace(triggerBody()?['text'], 'https://maxbiocare.sharepoint.com', ''))",
-          "runAfter": {
-            "Update_RefreshToken": [
-              "Succeeded"
-            ]
-          },
           "metadata": {
             "operationMetadataId": "274fff9c-fc3b-473b-9d7c-c86526abaea1"
+          }
+        },
+        "Compose_File_Extension": {
+          "type": "Compose",
+          "inputs": "@last(split(last(split(outputs('Compose_File_Path'), '/')), '.'))",
+          "runAfter": {
+            "Compose_File_Path": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "fd739a20-9c28-43e2-9ff0-2f6ca4e03a7e"
           }
         },
         "Get_Invoice_File_Content": {
@@ -407,16 +129,832 @@
             "operationMetadataId": "fa083a97-383e-432c-a538-5cbf90c4624d"
           }
         },
-        "Compose_File_Extension": {
-          "type": "Compose",
-          "inputs": "@last(split(last(split(outputs('Compose_File_Path'), '/')), '.'))",
-          "runAfter": {
-            "Compose_File_Path": [
-              "Succeeded"
+        "Check_AccessToken_Existing": {
+          "type": "If",
+          "expression": {
+            "and": [
+              {
+                "equals": [
+                  "@empty(first(body('Get_AppConfig')?['value'])?['AccessToken'])",
+                  true
+                ]
+              }
             ]
           },
-          "metadata": {
-            "operationMetadataId": "fd739a20-9c28-43e2-9ff0-2f6ca4e03a7e"
+          "actions": {
+            "Get_Token_1": {
+              "type": "Http",
+              "inputs": {
+                "uri": "https://ocr.mbcstaging.com/api/auth/token",
+                "method": "POST",
+                "headers": {
+                  "Content-Type": "application/json"
+                },
+                "body": {
+                  "client_credentials": "refresh_token",
+                  "refresh_token": "@{first(body('Get_AppConfig')?['value'])?['RefreshToken']}",
+                  "client_id": "@{first(body('Get_AppConfig')?['value'])?['ClientId']}",
+                  "client_secret": "@{first(body('Get_AppConfig')?['value'])?['ClientSecret']}"
+                }
+              },
+              "runtimeConfiguration": {
+                "contentTransfer": {
+                  "transferMode": "Chunked"
+                }
+              },
+              "metadata": {
+                "operationMetadataId": "2fc777fb-f44d-4f6b-8eac-12306224779e"
+              }
+            },
+            "Update_RefreshToken_1": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "parameters": {
+                  "dataset": "https://maxbiocare.sharepoint.com/sites/Powerapps",
+                  "table": "439c210d-faec-4949-878a-2888ee620ff1",
+                  "id": "@first(body('Get_AppConfig')?['value'])?['ID']",
+                  "item/RefreshToken": "@body('Parse_Token_Response_1')?['refresh_token']",
+                  "item/AccessToken": "@body('Parse_Token_Response_1')?['access_token']"
+                },
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                  "operationId": "PatchItem",
+                  "connectionName": "shared_sharepointonline"
+                }
+              },
+              "runAfter": {
+                "Parse_Token_Response_1": [
+                  "Succeeded"
+                ]
+              },
+              "metadata": {
+                "operationMetadataId": "d57f4328-8957-42c4-b392-bc7f3de2210b"
+              }
+            },
+            "Parse_Token_Response_1": {
+              "type": "ParseJson",
+              "inputs": {
+                "content": "@body('Get_Token_1')",
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "access_token": {
+                      "type": "string"
+                    },
+                    "refresh_token": {
+                      "type": "string"
+                    },
+                    "expires_in": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              },
+              "runAfter": {
+                "Get_Token_1": [
+                  "Succeeded"
+                ]
+              },
+              "metadata": {
+                "operationMetadataId": "8a94b494-beec-4df2-a406-9de5189034e1"
+              }
+            },
+            "Extract_Invoice_3": {
+              "type": "Http",
+              "inputs": {
+                "uri": "https://ocr.mbcstaging.com/api/v1/extract/from-base64",
+                "method": "POST",
+                "headers": {
+                  "Content-Type": "application/json",
+                  "Authorization": "Bearer @{body('Parse_Token_Response_1')?['access_token']}"
+                },
+                "body": {
+                  "filename": "",
+                  "content": "@{base64(body('Get_Invoice_File_Content'))}"
+                }
+              },
+              "runAfter": {
+                "Update_RefreshToken_1": [
+                  "Succeeded"
+                ]
+              },
+              "runtimeConfiguration": {
+                "contentTransfer": {
+                  "transferMode": "Chunked"
+                }
+              },
+              "metadata": {
+                "operationMetadataId": "54765a38-e6ab-43e0-8c55-4ec9091bb942"
+              }
+            },
+            "Parse_Invoice_Response": {
+              "type": "ParseJson",
+              "inputs": {
+                "content": "@body('Extract_Invoice_3')",
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "invoice_number": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "invoice_date": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "total_amount": {
+                      "type": [
+                        "number",
+            "null"
+                      ]
+                    },
+                    "tax_amount": {
+                      "type": [
+                        "number",
+            "null"
+                      ]
+                    },
+                    "supplier_name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "supplier_abn": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "billed_to": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "currency": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "confidence_score": {
+                      "type": [
+                        "number",
+            "null"
+                      ]
+                    },
+                    "job_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "attention": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              },
+              "runAfter": {
+                "Extract_Invoice_3": [
+                  "Succeeded"
+                ]
+              },
+              "metadata": {
+                "operationMetadataId": "8c23e3a7-ca1d-4b6e-be31-5979ecc86e85"
+              }
+            },
+            "Compose_Filename": {
+              "type": "Compose",
+              "inputs": "@concat(\r\n  if(empty(body('Parse_Invoice_Response')?['invoice_date']), '', formatDateTime(body('Parse_Invoice_Response')?['invoice_date'], 'yyyyMMdd')),\r\n  if(empty(body('Parse_Invoice_Response')?['supplier_name']), '', concat(' - ', body('Parse_Invoice_Response')?['supplier_name'])),\r\n  if(empty(body('Parse_Invoice_Response')?['billed_to']), '', concat(' - ', body('Parse_Invoice_Response')?['billed_to'])),\r\n  if(empty(body('Parse_Invoice_Response')?['invoice_number']), '', concat(' - ', body('Parse_Invoice_Response')?['invoice_number'])),\r\n  if(empty(body('Parse_Invoice_Response')?['attention']), '', concat(' - ', body('Parse_Invoice_Response')?['attention'])),\r\n  if(equals(body('Parse_Invoice_Response')?['total_amount'], null), '', concat(' - ', body('Parse_Invoice_Response')?['currency'], string(body('Parse_Invoice_Response')?['total_amount']))),\r\n  if(equals(body('Parse_Invoice_Response')?['tax_amount'], null), '', concat(' - GST ', body('Parse_Invoice_Response')?['currency'], string(body('Parse_Invoice_Response')?['tax_amount']))),\r\n  '.', outputs('Compose_File_Extension')\r\n)",
+              "runAfter": {
+                "Parse_Invoice_Response": [
+                  "Succeeded"
+                ]
+              },
+              "metadata": {
+                "operationMetadataId": "c9924f00-050d-4870-bd24-53f2636100e4"
+              }
+            },
+            "Compose_Sanitized_Filename": {
+              "type": "Compose",
+              "inputs": "@replace(replace(replace(replace(replace(replace(replace(replace(outputs('Compose_Filename'), '\\', ''), '/', ''), ':', ''), '*', ''), '?', ''), '\"', ''), '<', ''), '>', '')",
+              "runAfter": {
+                "Compose_Filename": [
+                  "Succeeded"
+                ]
+              },
+              "metadata": {
+                "operationMetadataId": "01229b30-199e-4f65-af70-9a0309767439"
+              }
+            },
+            "Response": {
+              "type": "Response",
+              "kind": "Http",
+              "inputs": {
+                "statusCode": 200,
+                "headers": {
+                  "Content-Type": "application/json"
+                },
+                "body": {
+                  "invoiceNumber": "@{body('Parse_Invoice_Response')?['invoice_number']}",
+                  "invoiceDate": "@{body('Parse_Invoice_Response')?['invoice_date']}",
+                  "totalAmount": "@{body('Parse_Invoice_Response')?['total_amount']}",
+                  "taxAmount": "@{body('Parse_Invoice_Response')?['tax_amount']}",
+                  "supplierName": "@{body('Parse_Invoice_Response')?['supplier_name']}",
+                  "supplierABN": "@{body('Parse_Invoice_Response')?['supplier_abn']}",
+                  "billedTo": "@{body('Parse_Invoice_Response')?['billed_to']}",
+                  "currency": "@{body('Parse_Invoice_Response')?['currency']}",
+                  "confidenceScore": "@{body('Parse_Invoice_Response')?['confidence_score']}",
+                  "jobId": "@{body('Parse_Invoice_Response')?['job_id']}",
+                  "attention": "@{body('Parse_Invoice_Response')?['attention']}",
+                  "suggestedFilename": "@{outputs('Compose_Sanitized_Filename')}"
+                },
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "invoiceNumber": {
+                      "type": "string"
+                    },
+                    "invoiceDate": {
+                      "type": "string"
+                    },
+                    "totalAmount": {
+                      "type": "number"
+                    },
+                    "taxAmount": {
+                      "type": "number"
+                    },
+                    "supplierName": {
+                      "type": "string"
+                    },
+                    "supplierABN": {
+                      "type": "string"
+                    },
+                    "billedTo": {
+                      "type": "string"
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "confidenceScore": {
+                      "type": "number"
+                    },
+                    "jobId": {
+                      "type": "string"
+                    },
+                    "attention": {
+                      "type": "string"
+                    },
+                    "suggestedFilename": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "runAfter": {
+                "Compose_Sanitized_Filename": [
+                  "Succeeded"
+                ]
+              },
+              "metadata": {
+                "operationMetadataId": "33427b34-850a-4428-8c95-50120165ec37"
+              }
+            }
+          },
+          "else": {
+            "actions": {
+              "Extract_Invoice_1": {
+                "type": "Http",
+                "inputs": {
+                  "uri": "https://ocr.mbcstaging.com/api/v1/extract/from-base64",
+                  "method": "POST",
+                  "headers": {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer @{first(body('Get_AppConfig')?['value'])?['AccessToken']}"
+                  },
+                  "body": {
+                    "filename": "",
+                    "content": "@{base64(body('Get_Invoice_File_Content'))}"
+                  }
+                },
+                "runtimeConfiguration": {
+                  "contentTransfer": {
+                    "transferMode": "Chunked"
+                  }
+                },
+                "metadata": {
+                  "operationMetadataId": "54765a38-e6ab-43e0-8c55-4ec9091bb942"
+                }
+              },
+              "Check_Access_Token_Expired": {
+                "type": "If",
+                "expression": {
+                  "and": [
+                    {
+                      "equals": [
+                        "@body('Parse_Invoice_Response_1_1')?['detail']",
+                        "Token expired"
+                      ]
+                    }
+                  ]
+                },
+                "actions": {
+                  "Get_Token": {
+                    "type": "Http",
+                    "inputs": {
+                      "uri": "https://ocr.mbcstaging.com/api/auth/token",
+                      "method": "POST",
+                      "headers": {
+                        "Content-Type": "application/json"
+                      },
+                      "body": {
+                        "client_credentials": "refresh_token",
+                        "refresh_token": "@{first(body('Get_AppConfig')?['value'])?['RefreshToken']}",
+                        "client_id": "@{first(body('Get_AppConfig')?['value'])?['ClientId']}",
+                        "client_secret": "@{first(body('Get_AppConfig')?['value'])?['ClientSecret']}"
+                      }
+                    },
+                    "runtimeConfiguration": {
+                      "contentTransfer": {
+                        "transferMode": "Chunked"
+                      }
+                    },
+                    "metadata": {
+                      "operationMetadataId": "2fc777fb-f44d-4f6b-8eac-12306224779e"
+                    }
+                  },
+                  "Update_RefreshToken_2": {
+                    "type": "OpenApiConnection",
+                    "inputs": {
+                      "parameters": {
+                        "dataset": "https://maxbiocare.sharepoint.com/sites/Powerapps",
+                        "table": "439c210d-faec-4949-878a-2888ee620ff1",
+                        "id": "@first(body('Get_AppConfig')?['value'])?['ID']",
+                        "item/RefreshToken": "@body('Parse_Token_Response')?['refresh_token']",
+                        "item/AccessToken": "@body('Parse_Token_Response')?['access_token']"
+                      },
+                      "host": {
+                        "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                        "operationId": "PatchItem",
+                        "connectionName": "shared_sharepointonline"
+                      }
+                    },
+                    "runAfter": {
+                      "Parse_Token_Response": [
+                        "Succeeded"
+                      ]
+                    },
+                    "metadata": {
+                      "operationMetadataId": "d57f4328-8957-42c4-b392-bc7f3de2210b"
+                    }
+                  },
+                  "Extract_Invoice_2": {
+                    "type": "Http",
+                    "inputs": {
+                      "uri": "https://ocr.mbcstaging.com/api/v1/extract/from-base64",
+                      "method": "POST",
+                      "headers": {
+                        "Content-Type": "application/json",
+                        "Authorization": "Bearer @{body('Parse_Token_Response')?['access_token']}"
+                      },
+                      "body": {
+                        "filename": "",
+                        "content": "@{base64(body('Get_Invoice_File_Content'))}"
+                      }
+                    },
+                    "runAfter": {
+                      "Update_RefreshToken_2": [
+                        "Succeeded"
+                      ]
+                    },
+                    "runtimeConfiguration": {
+                      "contentTransfer": {
+                        "transferMode": "Chunked"
+                      }
+                    },
+                    "metadata": {
+                      "operationMetadataId": "54765a38-e6ab-43e0-8c55-4ec9091bb942"
+                    }
+                  },
+                  "Parse_Token_Response": {
+                    "type": "ParseJson",
+                    "inputs": {
+                      "content": "@body('Get_Token')",
+                      "schema": {
+                        "type": "object",
+                        "properties": {
+                          "access_token": {
+                            "type": "string"
+                          },
+                          "refresh_token": {
+                            "type": "string"
+                          },
+                          "expires_in": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "runAfter": {
+                      "Get_Token": [
+                        "Succeeded"
+                      ]
+                    },
+                    "metadata": {
+                      "operationMetadataId": "8a94b494-beec-4df2-a406-9de5189034e1"
+                    }
+                  },
+                  "Parse_Invoice_Response_2": {
+                    "type": "ParseJson",
+                    "inputs": {
+                      "content": "@body('Extract_Invoice_2')",
+                      "schema": {
+                        "type": "object",
+                        "properties": {
+                          "invoice_number": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "invoice_date": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "total_amount": {
+                            "type": [
+                              "number",
+            "null"
+                            ]
+                          },
+                          "tax_amount": {
+                            "type": [
+                              "number",
+            "null"
+                            ]
+                          },
+                          "supplier_name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "supplier_abn": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "billed_to": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "currency": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "confidence_score": {
+                            "type": [
+                              "number",
+            "null"
+                            ]
+                          },
+                          "job_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "attention": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "runAfter": {
+                      "Extract_Invoice_2": [
+                        "Succeeded"
+                      ]
+                    },
+                    "metadata": {
+                      "operationMetadataId": "8c23e3a7-ca1d-4b6e-be31-5979ecc86e85"
+                    }
+                  },
+                  "Compose_Filename_1": {
+                    "type": "Compose",
+                    "inputs": "@concat(\n  if(empty(body('Parse_Invoice_Response_2')?['invoice_date']), '', formatDateTime(body('Parse_Invoice_Response_2')?['invoice_date'], 'yyyyMMdd')),\n  if(empty(body('Parse_Invoice_Response_2')?['supplier_name']), '', concat(' - ', body('Parse_Invoice_Response_2')?['supplier_name'])),\n  if(empty(body('Parse_Invoice_Response_2')?['billed_to']), '', concat(' - ', body('Parse_Invoice_Response_2')?['billed_to'])),\n  if(empty(body('Parse_Invoice_Response_2')?['invoice_number']), '', concat(' - ', body('Parse_Invoice_Response_2')?['invoice_number'])),\n  if(empty(body('Parse_Invoice_Response_2')?['attention']), '', concat(' - ', body('Parse_Invoice_Response_2')?['attention'])),\n  if(equals(body('Parse_Invoice_Response_2')?['total_amount'], null), '', concat(' - ', body('Parse_Invoice_Response_2')?['currency'], string(body('Parse_Invoice_Response_2')?['total_amount']))),\n  if(equals(body('Parse_Invoice_Response_2')?['tax_amount'], null), '', concat(' - GST ', body('Parse_Invoice_Response_2')?['currency'], string(body('Parse_Invoice_Response_2')?['tax_amount']))),\n  '.', outputs('Compose_File_Extension')\n)",
+                    "runAfter": {
+                      "Parse_Invoice_Response_2": [
+                        "Succeeded"
+                      ]
+                    },
+                    "metadata": {
+                      "operationMetadataId": "c9924f00-050d-4870-bd24-53f2636100e4"
+                    }
+                  },
+                  "Compose_Sanitized_Filename_1": {
+                    "type": "Compose",
+                    "inputs": "@replace(replace(replace(replace(replace(replace(replace(replace(outputs('Compose_Filename_1'), '\\', ''), '/', ''), ':', ''), '*', ''), '?', ''), '\"', ''), '<', ''), '>', '')",
+                    "runAfter": {
+                      "Compose_Filename_1": [
+                        "Succeeded"
+                      ]
+                    },
+                    "metadata": {
+                      "operationMetadataId": "01229b30-199e-4f65-af70-9a0309767439"
+                    }
+                  },
+                  "Response_1": {
+                    "type": "Response",
+                    "kind": "Http",
+                    "inputs": {
+                      "statusCode": 200,
+                      "headers": {
+                        "Content-Type": "application/json"
+                      },
+                      "body": {
+                        "invoiceNumber": "@{body('Parse_Invoice_Response_2')?['invoice_number']}",
+                        "invoiceDate": "@{body('Parse_Invoice_Response_2')?['invoice_date']}",
+                        "totalAmount": "@{body('Parse_Invoice_Response_2')?['total_amount']}",
+                        "taxAmount": "@{body('Parse_Invoice_Response_2')?['tax_amount']}",
+                        "supplierName": "@{body('Parse_Invoice_Response_2')?['supplier_name']}",
+                        "supplierABN": "@{body('Parse_Invoice_Response_2')?['supplier_abn']}",
+                        "billedTo": "@{body('Parse_Invoice_Response_2')?['billed_to']}",
+                        "currency": "@{body('Parse_Invoice_Response_2')?['currency']}",
+                        "confidenceScore": "@{body('Parse_Invoice_Response_2')?['confidence_score']}",
+                        "jobId": "@{body('Parse_Invoice_Response_2')?['job_id']}",
+                        "attention": "@{body('Parse_Invoice_Response_2')?['attention']}",
+                        "suggestedFilename": "@{outputs('Compose_Sanitized_Filename_1')}"
+                      },
+                      "schema": {
+                        "type": "object",
+                        "properties": {
+                          "invoiceNumber": {
+                            "type": "string"
+                          },
+                          "invoiceDate": {
+                            "type": "string"
+                          },
+                          "totalAmount": {
+                            "type": "number"
+                          },
+                          "taxAmount": {
+                            "type": "number"
+                          },
+                          "supplierName": {
+                            "type": "string"
+                          },
+                          "supplierABN": {
+                            "type": "string"
+                          },
+                          "billedTo": {
+                            "type": "string"
+                          },
+                          "currency": {
+                            "type": "string"
+                          },
+                          "confidenceScore": {
+                            "type": "number"
+                          },
+                          "jobId": {
+                            "type": "string"
+                          },
+                          "attention": {
+                            "type": "string"
+                          },
+                          "suggestedFilename": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "runAfter": {
+                      "Compose_Sanitized_Filename_1": [
+                        "Succeeded"
+                      ]
+                    },
+                    "metadata": {
+                      "operationMetadataId": "33427b34-850a-4428-8c95-50120165ec37"
+                    }
+                  }
+                },
+                "else": {
+                  "actions": {
+                    "Compose_Filename_1_1": {
+                      "type": "Compose",
+                      "inputs": "@concat(\n  if(empty(body('Parse_Invoice_Response_1_1')?['invoice_date']), '', formatDateTime(body('Parse_Invoice_Response_1_1')?['invoice_date'], 'yyyyMMdd')),\n  if(empty(body('Parse_Invoice_Response_1_1')?['supplier_name']), '', concat(' - ', body('Parse_Invoice_Response_1_1')?['supplier_name'])),\n  if(empty(body('Parse_Invoice_Response_1_1')?['billed_to']), '', concat(' - ', body('Parse_Invoice_Response_1_1')?['billed_to'])),\n  if(empty(body('Parse_Invoice_Response_1_1')?['invoice_number']), '', concat(' - ', body('Parse_Invoice_Response_1_1')?['invoice_number'])),\n  if(empty(body('Parse_Invoice_Response_1_1')?['attention']), '', concat(' - ', body('Parse_Invoice_Response_1_1')?['attention'])),\n  if(equals(body('Parse_Invoice_Response_1_1')?['total_amount'], null), '', concat(' - ', body('Parse_Invoice_Response_1_1')?['currency'], string(body('Parse_Invoice_Response_1_1')?['total_amount']))),\n  if(equals(body('Parse_Invoice_Response_1_1')?['tax_amount'], null), '', concat(' - GST ', body('Parse_Invoice_Response_1_1')?['currency'], string(body('Parse_Invoice_Response_1_1')?['tax_amount']))),\n  '.', outputs('Compose_File_Extension')\n)",
+                      "metadata": {
+                        "operationMetadataId": "c9924f00-050d-4870-bd24-53f2636100e4"
+                      }
+                    },
+                    "Compose_Sanitized_Filename_1_1": {
+                      "type": "Compose",
+                      "inputs": "@replace(replace(replace(replace(replace(replace(replace(replace(outputs('Compose_Filename_1_1'), '\\', ''), '/', ''), ':', ''), '*', ''), '?', ''), '\"', ''), '<', ''), '>', '')",
+                      "runAfter": {
+                        "Compose_Filename_1_1": [
+                          "Succeeded"
+                        ]
+                      },
+                      "metadata": {
+                        "operationMetadataId": "01229b30-199e-4f65-af70-9a0309767439"
+                      }
+                    },
+                    "Response_1_1": {
+                      "type": "Response",
+                      "kind": "Http",
+                      "inputs": {
+                        "statusCode": 200,
+                        "headers": {
+                          "Content-Type": "application/json"
+                        },
+                        "body": {
+                          "invoiceNumber": "@{body('Parse_Invoice_Response_1_1')?['invoice_number']}",
+                          "invoiceDate": "@{body('Parse_Invoice_Response_1_1')?['invoice_date']}",
+                          "totalAmount": "@{body('Parse_Invoice_Response_1_1')?['total_amount']}",
+                          "taxAmount": "@{body('Parse_Invoice_Response_1_1')?['tax_amount']}",
+                          "supplierName": "@{body('Parse_Invoice_Response_1_1')?['supplier_name']}",
+                          "supplierABN": "@{body('Parse_Invoice_Response_1_1')?['supplier_abn']}",
+                          "billedTo": "@{body('Parse_Invoice_Response_1_1')?['billed_to']}",
+                          "currency": "@{body('Parse_Invoice_Response_1_1')?['currency']}",
+                          "confidenceScore": "@{body('Parse_Invoice_Response_1_1')?['confidence_score']}",
+                          "jobId": "@{body('Parse_Invoice_Response_1_1')?['job_id']}",
+                          "attention": "@{body('Parse_Invoice_Response_1_1')?['attention']}",
+                          "suggestedFilename": "@{outputs('Compose_Sanitized_Filename_1_1')}"
+                        },
+                        "schema": {
+                          "type": "object",
+                          "properties": {
+                            "invoiceNumber": {
+                              "type": "string"
+                            },
+                            "invoiceDate": {
+                              "type": "string"
+                            },
+                            "totalAmount": {
+                              "type": "number"
+                            },
+                            "taxAmount": {
+                              "type": "number"
+                            },
+                            "supplierName": {
+                              "type": "string"
+                            },
+                            "supplierABN": {
+                              "type": "string"
+                            },
+                            "billedTo": {
+                              "type": "string"
+                            },
+                            "currency": {
+                              "type": "string"
+                            },
+                            "confidenceScore": {
+                              "type": "number"
+                            },
+                            "jobId": {
+                              "type": "string"
+                            },
+                            "attention": {
+                              "type": "string"
+                            },
+                            "suggestedFilename": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "runAfter": {
+                        "Compose_Sanitized_Filename_1_1": [
+                          "Succeeded"
+                        ]
+                      },
+                      "metadata": {
+                        "operationMetadataId": "33427b34-850a-4428-8c95-50120165ec37"
+                      }
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Parse_Invoice_Response_1_1": [
+                    "Succeeded"
+                  ]
+                }
+              },
+              "Parse_Invoice_Response_1_1": {
+                "type": "ParseJson",
+                "inputs": {
+                  "content": "@body('Extract_Invoice_1')",
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "detail": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "invoice_number": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "invoice_date": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "total_amount": {
+                        "type": [
+                          "number",
+            "null"
+                        ]
+                      },
+                      "tax_amount": {
+                        "type": [
+                          "number",
+            "null"
+                        ]
+                      },
+                      "supplier_name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "supplier_abn": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "billed_to": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "currency": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "confidence_score": {
+                        "type": [
+                          "number",
+            "null"
+                        ]
+                      },
+                      "job_id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "attention": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Extract_Invoice_1": [
+                    "Succeeded"
+                  ]
+                },
+                "metadata": {
+                  "operationMetadataId": "8c23e3a7-ca1d-4b6e-be31-5979ecc86e85"
+                }
+              }
+            }
+          },
+          "runAfter": {
+            "Get_Invoice_File_Content": [
+              "Succeeded"
+            ]
           }
         }
       }
