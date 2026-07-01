@@ -1,0 +1,24 @@
+# ************************************************************************************************
+# Warning: YAML source code for Canvas Apps should only be used to review changes made within Power Apps Studio and for minor edits (Preview).
+# Use the maker portal to create and edit your Power Apps.
+#
+# The schema file for Canvas Apps is available at https://go.microsoft.com/fwlink/?linkid=2304907
+#
+# For more information, visit https://go.microsoft.com/fwlink/?linkid=2292623
+# ************************************************************************************************
+App:
+  Properties:
+    OnStart: |-
+      =Set(gAppReady, false);
+      Set(gCurrentEmployee, LookUp('Employee List', Email = User().Email));
+      Set(gSelectedBatch, Blank());
+      Set(gInvoiceParseBatchID, Blank());
+      Set(gSelectedInvoiceRow, Blank());
+      Set(gDefaultCostCenter, Blank());
+      Set(gParsingInvoice, false);
+      Set(gParsingCurrent, 0);
+      Set(gParsingTotal, 0);
+      Set(gFinalizing, false);
+      Set(gSharePointAttachmentBase, "https://maxbiocare.sharepoint.com/sites/Powerapps/Lists/BEUI_InvoiceBatch_Requests/Attachments/");
+      Set(gAppReady, true)
+    Theme: =PowerAppsTheme
