@@ -123,67 +123,72 @@ Screens:
                     Notify("Finalizing invoices - please do not leave this page.", NotificationType.Warning);
                     ClearCollect(colFinalizeQueue, Filter(colInvoiceParseResults, Not(IsFinalized)));
                     Clear(colFinalizeErrors);
-                    ForAll(
-                        colFinalizeQueue,
-                        With(
-                            {
-                                wRowId: RowId,
-                                wFileName: FileName,
-                                wExt: Last(Split(FileName, ".")).Value,
-                                wDate: If(IsBlank(InvoiceDateEdit), "", IfError(Text(DateValue(InvoiceDateEdit), "yyyymmdd"), InvoiceDateEdit))
-                            },
-                            With(
-                                {
-                                    wName: wDate &
-                                        If(IsBlank(SupplierNameEdit), "", " - " & SupplierNameEdit) &
-                                        If(IsBlank(BilledToEdit), "", " - " & BilledToEdit) &
-                                        If(IsBlank(InvoiceNumberEdit), "", " - " & InvoiceNumberEdit) &
-                                        If(IsBlank(AttentionEdit), "", " - " & AttentionEdit) &
-                                        If(IsBlank(DescriptionEdit), "", " - " & DescriptionEdit) &
-                                        If(IsBlank(TotalAmountEdit), "", " - " & CurrencyEdit & TotalAmountEdit) &
-                                        If(IsBlank(TaxAmountEdit), "", " - GST " & CurrencyEdit & TaxAmountEdit)
-                                },
-                                IfError(
-                                    Finalize_Invoice.Run(
-                                        InvoiceURL,
-                                        gSelectedBatch.ID,
-                                        If(
-                                            IsBlank(wName),
-                                            FileNameBase,
-                                            Substitute(Substitute(Substitute(Substitute(Substitute(Substitute(Substitute(Substitute(Substitute(Substitute(wName, "\", ""), "/", ""), ":", ""), "*", ""), "?", ""), """", ""), "<", ""), ">", ""), "#", ""), "%", "")
-                                        ) & "." & wExt,
-                                        InvoiceNumberEdit & "",
-                                        InvoiceDateEdit & "",
-                                        SupplierNameEdit & "",
-                                        BilledToEdit & "",
-                                        Value(If(IsBlank(TotalAmountEdit), "0", TotalAmountEdit)),
-                                        Value(If(IsBlank(TaxAmountEdit), "0", TaxAmountEdit)),
-                                        CurrencyEdit & "",
-                                        Coalesce(CostCenterEdit, ddDefaultCostCenter.Selected.Value),
-                                        AttentionEdit & "",
-                                        ABNEdit & "",
-                                        Coalesce(ConfidenceScore, 0),
-                                        DescriptionEdit & ""
-                                    );
-                                    Patch(colInvoiceParseResults, LookUp(colInvoiceParseResults, RowId = wRowId), {IsFinalized: true});
-                                    true,
-                                    Collect(colFinalizeErrors, {FileName: wFileName, ErrorMessage: FirstError.Message});
-                                    false
+                    With(
+                        {
+                            wResults: ForAll(
+                                colFinalizeQueue,
+                                With(
+                                    {
+                                        wRowId: RowId,
+                                        wFileName: FileName,
+                                        wExt: Last(Split(FileName, ".")).Value,
+                                        wDate: If(IsBlank(InvoiceDateEdit), "", IfError(Text(DateValue(InvoiceDateEdit), "yyyymmdd"), InvoiceDateEdit))
+                                    },
+                                    With(
+                                        {
+                                            wName: wDate &
+                                                If(IsBlank(SupplierNameEdit), "", " - " & SupplierNameEdit) &
+                                                If(IsBlank(BilledToEdit), "", " - " & BilledToEdit) &
+                                                If(IsBlank(InvoiceNumberEdit), "", " - " & InvoiceNumberEdit) &
+                                                If(IsBlank(AttentionEdit), "", " - " & AttentionEdit) &
+                                                If(IsBlank(DescriptionEdit), "", " - " & DescriptionEdit) &
+                                                If(IsBlank(TotalAmountEdit), "", " - " & CurrencyEdit & TotalAmountEdit) &
+                                                If(IsBlank(TaxAmountEdit), "", " - GST " & CurrencyEdit & TaxAmountEdit)
+                                        },
+                                        IfError(
+                                            Finalize_Invoice.Run(
+                                                InvoiceURL,
+                                                gSelectedBatch.ID,
+                                                If(
+                                                    IsBlank(wName),
+                                                    FileNameBase,
+                                                    Substitute(Substitute(Substitute(Substitute(Substitute(Substitute(Substitute(Substitute(Substitute(Substitute(wName, "\", ""), "/", ""), ":", ""), "*", ""), "?", ""), """", ""), "<", ""), ">", ""), "#", ""), "%", "")
+                                                ) & "." & wExt,
+                                                InvoiceNumberEdit & "",
+                                                InvoiceDateEdit & "",
+                                                SupplierNameEdit & "",
+                                                BilledToEdit & "",
+                                                Value(If(IsBlank(TotalAmountEdit), "0", TotalAmountEdit)),
+                                                Value(If(IsBlank(TaxAmountEdit), "0", TaxAmountEdit)),
+                                                CurrencyEdit & "",
+                                                Coalesce(CostCenterEdit, ddDefaultCostCenter.Selected.Value),
+                                                AttentionEdit & "",
+                                                ABNEdit & "",
+                                                Coalesce(ConfidenceScore, 0),
+                                                DescriptionEdit & ""
+                                            );
+                                            Patch(colInvoiceParseResults, LookUp(colInvoiceParseResults, RowId = wRowId), {IsFinalized: true});
+                                            true,
+                                            Collect(colFinalizeErrors, {FileName: wFileName, ErrorMessage: FirstError.Message});
+                                            false
+                                        )
+                                    )
                                 )
                             )
-                        )
-                    );
-                    Set(gFinalizing, false);
-                    If(
-                        CountRows(colFinalizeErrors) = 0,
-                        Patch(BEUI_InvoiceBatch_Requests, gSelectedBatch, {Status: {Value: "Finalized"}});
-                        Clear(colInvoiceParseResults);
-                        Set(gInvoiceParseBatchID, Blank());
-                        Notify("Batch finalized - invoices saved to the output library.", NotificationType.Success);
-                        Navigate(HomeScreen),
-                        Notify(
-                            CountRows(colFinalizeErrors) & " invoice(s) failed to finalize: " & Concat(colFinalizeErrors, FileName & " → " & ErrorMessage, " · ") & ". Press Done again to retry the failed ones.",
-                            NotificationType.Error
+                        },
+                        Set(gFinalizing, false);
+                        If(
+                            CountRows(Filter(wResults, Value)) = CountRows(colFinalizeQueue),
+                            Patch(BEUI_InvoiceBatch_Requests, gSelectedBatch, {Status: {Value: "Finalized"}});
+                            Refresh(BEUI_InvoiceBatch_Requests);
+                            Clear(colInvoiceParseResults);
+                            Set(gInvoiceParseBatchID, Blank());
+                            Notify("Batch finalized - invoices saved to the output library.", NotificationType.Success);
+                            Navigate(HomeScreen),
+                            Notify(
+                                CountRows(colFinalizeErrors) & " invoice(s) failed to finalize: " & Concat(colFinalizeErrors, FileName & " → " & ErrorMessage, " · ") & ". Press Done again to retry the failed ones.",
+                                NotificationType.Error
+                            )
                         )
                     )
                   PaddingBottom: =5
