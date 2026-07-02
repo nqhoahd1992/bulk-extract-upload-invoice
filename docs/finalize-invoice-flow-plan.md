@@ -24,6 +24,7 @@ Thêm **cùng một bộ cột metadata** vào cả 4 library đích: `AU_Invoic
 | `BilledTo` | Single line text | BilledToEdit |
 | `ABN` | Single line text | ABNEdit |
 | `Attention` | Single line text | AttentionEdit |
+| `InvoiceDescription` | Single line text | DescriptionEdit (User nhập trong app, parse không trả về). **KHÔNG đặt tên cột là `Description`** — document library có field ẩn trùng tên nên internal name sẽ bị đổi thành `Description0`, gây lỗi `The property 'Description' does not exist` khi MERGE. Tạo với tên `InvoiceDescription` (internal name chốt lúc tạo), sau đó muốn thì đổi display name thành "Description" |
 | `TotalAmount` | Currency/Number | TotalAmountEdit |
 | `GSTAmount` | Currency/Number | TaxAmountEdit |
 | `Currency` | Single line text | CurrencyEdit |
@@ -49,7 +50,7 @@ kiểu `Blank` vì không được set type rõ ràng lúc tạo, gây lỗi
 |---|---|---|---|
 | 1 | text | Text | InvoiceURL (attachment URL) |
 | 2 | number | Number | BatchID (gSelectedBatch.ID) |
-| 3 | text_1 | Text | newFilename (đã gồm extension, trùng tên attachment gốc) |
+| 3 | text_1 | Text | newFilename (đã gồm extension) — app compose theo naming convention của `Parse_Invoice`: `{yyyyMMdd} - {Supplier} - {BilledTo} - {InvoiceNumber} - {Attention} - {Description} - {Currency}{Total} - GST {Currency}{Tax}.{ext}`, đã sanitize ký tự cấm `\ / : * ? " < > # %`. **KHÁC tên attachment gốc** |
 | 4 | text_2 | Text | InvoiceNumber |
 | 5 | text_3 | Text | InvoiceDate |
 | 6 | text_4 | Text | SupplierName |
@@ -61,6 +62,7 @@ kiểu `Blank` vì không được set type rõ ràng lúc tạo, gây lỗi
 | 12 | text_8 | Text | Attention |
 | 13 | text_9 | Text | ABN |
 | 14 | number_3 | Number | ConfidenceScore |
+| 15 | text_10 | Text | Description (User nhập, required ở chế độ Review) |
 
 ## C. Các bước (actions) trong flow
 
@@ -75,11 +77,16 @@ kiểu `Blank` vì không được set type rõ ràng lúc tạo, gây lỗi
 2. **Switch_Cost_Center** — dùng action **Switch** (không dùng nested-If như flow
    `Submit_Invoice` cũ — flow cũ có bug âm thầm rơi hóa đơn "Unknown Region" vào
    `MY_Invoices` mặc định thay vì báo lỗi):
+   - Trước Switch: **Initialize variable** `TargetLibrary` (Type: String, value
+     để trống). KHÔNG đặt Compose trong từng nhánh — action nằm trong nhánh
+     không khớp sẽ bị **Skipped**, và mọi tham chiếu `outputs('...')` tới action
+     Skipped ở các bước sau Switch sẽ lỗi runtime. Biến thì sống xuyên suốt
+     flow, nhánh nào chạy cũng gán được.
    - `On`: `@triggerBody()?['text_7']`
-   - Case `Australia` → Compose `Target_Library` = `"AU_Invoices"`
-   - Case `Malaysia` → `"MY_Invoices"`
-   - Case `Singapore` → `"SG_Invoices"`
-   - Case `Vietnam` → `"VN_Invoices"`
+   - Case `Australia` → **Set variable** `TargetLibrary` = `AU_Invoices`
+   - Case `Malaysia` → Set variable `TargetLibrary` = `MY_Invoices`
+   - Case `Singapore` → Set variable `TargetLibrary` = `SG_Invoices`
+   - Case `Vietnam` → Set variable `TargetLibrary` = `VN_Invoices`
    - **Default** → action **Terminate** (Failed, message
      `"Unknown Cost Center: " & triggerBody()?['text_7']`) — chặn đứng thay vì
      âm thầm lưu sai chỗ, vì đây là tài liệu tài chính.
@@ -89,31 +96,61 @@ kiểu `Blank` vì không được set type rõ ràng lúc tạo, gây lỗi
    `Submit_Invoice`).
 
 4. **Create_Invoice_File** — SharePoint `CreateFile`:
-   - `folderPath`: `@outputs('Target_Library')` (dynamic theo Cost Center — đã
+   - `folderPath`: `@variables('TargetLibrary')` (dynamic theo Cost Center — đã
      được chứng minh hoạt động trong `Submit_Invoice` cũ với `InvoiceRegion`)
    - `name`: `@{triggerBody()?['text_1']}` (đã có extension sẵn — **không** nối
      thêm extension lần nữa)
    - `body`: `@body('Get_Attachment_Content')`
-   - `overwrite`: `true`
+   - `overwrite`: `true` — bắt buộc, là nền tảng của cơ chế retry: bấm Done lại
+     sau lỗi giữa chừng sẽ tạo lại file cùng tên, phải ghi đè được thay vì fail.
+   - **Allow chunking: OFF** (Settings → Content transfer) — lỗi đã gặp thật:
+     khi bật chunking, connector chuyển sang bộ API upload theo mảnh
+     (`StartUpload/ContinueUpload/FinishUpload`) vốn **không tôn trọng cờ
+     `overwrite`**, nên vẫn fail `"A file with the name ... already exists"`
+     dù code view có `"overwrite": true`. Chunking chỉ cần cho file >100MB —
+     hóa đơn PDF vài chục KB không bao giờ cần. KHÔNG bật lại.
+   - Lưu ý hệ quả: mỗi lần finalize tạo **2 version** trên file (CreateFile ghi
+     nội dung + bước 6 MERGE ghi metadata) — bình thường, hữu ích khi audit.
+     Nếu sau này cần gộp còn 1 version thì đổi bước 6 sang endpoint
+     `ValidateUpdateListItem` với `bNewDocumentUpdate: true`.
 
 5. **Get_New_File_Item_Id** — HttpRequest GET tới:
    ```
-   _api/web/GetFileByServerRelativePath(decodedurl='/sites/Powerapps/@{outputs('Target_Library')}/@{triggerBody()?['text_1']}')/ListItemAllFields?$select=Id
+   _api/web/GetFileByServerRelativePath(decodedurl='/sites/Powerapps/@{variables('TargetLibrary')}/@{triggerBody()?['text_1']}')/ListItemAllFields?$select=Id
    ```
 
 6. **Update_Invoice_Metadata** — HttpRequest POST (MERGE) tới:
    ```
-   _api/web/lists/getbytitle('@{outputs('Target_Library')}')/items(@{body('Get_New_File_Item_Id')?['Id']})
+   _api/web/lists/getbytitle('@{variables('TargetLibrary')}')/items(@{body('Get_New_File_Item_Id')?['Id']})
    ```
    Header: `X-HTTP-Method: MERGE`, `IF-MATCH: *`,
    `Content-Type: application/json;odata=nometadata`.
-   Body JSON set toàn bộ 13 cột ở mục A, map trực tiếp từ `triggerBody()`, cộng
+   Body JSON set toàn bộ 14 cột ở mục A, map trực tiếp từ `triggerBody()`, cộng
    `ParsedAt: @{utcNow()}`.
 
-7. **Delete_Source_Attachment** — SharePoint `DeleteAttachment`:
-   - `table` = `BEUI_InvoiceBatch_Requests`
-   - `id` = `triggerBody()?['number']`
-   - `fileIdentifier` = `triggerBody()?['text_1']`
+   **Cảnh báo (lỗi đã gặp thật):** trong Body, mọi giá trị Text/DateTime phải
+   được bọc trong dấu nháy kép — `"VendorName": "@{triggerBody()?['text_4']}"`,
+   KHÔNG phải `"VendorName": @{triggerBody()?['text_4']}`. Thiếu nháy sẽ gây
+   400 `InvalidClientQueryException: Invalid JSON. A token was not recognized`.
+   Chỉ 4 trường số (`TotalAmount`, `GSTAmount`, `BatchID`, `ConfidenceScore`)
+   là không có nháy. Đồng thời app phải bật **Formula-level error management**
+   (Settings → Updates) thì `IfError` quanh `Finalize_Invoice.Run(...)` trong
+   `btnDone` mới bắt được lỗi flow — nếu tắt, app sẽ coi run lỗi là thành công
+   và đánh dấu `IsFinalized` sai.
+
+7. **Delete_Source_Attachment** — HttpRequest POST (X-HTTP-Method: DELETE),
+   KHÔNG dùng action connector "Delete attachment" (lỗi đã gặp thật: connector
+   resolve File Identifier dạng tên trần thành đường dẫn từ gốc site
+   `/sites/Powerapps/<tên file>` → "file does not exist"). Gọi REST trực tiếp:
+   ```
+   _api/web/lists/getbytitle('BEUI_InvoiceBatch_Requests')/items(@{triggerBody()?['number']})/AttachmentFiles/getByFileName('<tên gốc>')
+   ```
+   Header: `Accept: application/json;odata=nometadata`, `X-HTTP-Method: DELETE`.
+   Tên gốc suy ra từ URL — **KHÔNG dùng `text_1`** (`text_1` là tên mới theo
+   naming convention, không trùng tên gốc), nhân đôi dấu nháy đơn nếu có:
+   ```
+   replace(uriComponentToString(last(split(outputs('Compose_File_Path'), '/'))), '''', '''''')
+   ```
 
    Chỉ xóa **đúng 1 attachment vừa xử lý**, không xóa toàn bộ attachments của
    record — vì flow này chạy tuần tự nhiều lần trong cùng 1 `ForAll` ở
@@ -124,17 +161,20 @@ kiểu `Blank` vì không được set type rõ ràng lúc tạo, gây lỗi
 
 8. **Response** (tùy chọn) — trả về:
    ```
-   newInvoiceLink = concat('https://maxbiocare.sharepoint.com/sites/Powerapps/', outputs('Target_Library'), '/', triggerBody()?['text_1'])
+   newInvoiceLink = concat('https://maxbiocare.sharepoint.com/sites/Powerapps/', variables('TargetLibrary'), '/', triggerBody()?['text_1'])
    ```
    Dự phòng nếu sau này app cần hiển thị link — hiện tại
    `BatchUploadScreen.pa.yaml` không capture giá trị trả về nên bước này không
    bắt buộc.
 
-## D. Không cần sửa gì ở `BatchUploadScreen.pa.yaml`
+## D. Trạng thái phía `BatchUploadScreen.pa.yaml`
 
-Lời gọi `Finalize_Invoice.Run(...)` ở dòng ~560-575 đã đúng thứ tự 14 tham số —
-flow build xong trong Power Automate là gọi được ngay, không cần đổi code
-Power Apps.
+Lời gọi `Finalize_Invoice.Run(...)` trong `btnDone.OnSelect` đã đúng thứ tự 14
+tham số. Tham số 3 (`newFilename`) được app compose từ các trường đã review
+(`InvoiceDateEdit`, `SupplierNameEdit`, ...) theo đúng naming convention ở mục B
+và đã sanitize ký tự cấm — khớp 1:1 với label "Invoice Name Preview" trong
+`rowInvoiceDetail`. Nếu compose ra chuỗi rỗng (mọi trường trống), app fallback
+về `FileNameBase` (tên gốc bỏ extension).
 
 ## Tham chiếu
 

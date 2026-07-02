@@ -7,9 +7,10 @@ Screens:
             gInvoiceParseBatchID <> gSelectedBatch.ID,
             Clear(colInvoiceParseResults);
             Set(gSelectedInvoiceRow, Blank());
-            Set(gDefaultCostCenter, Blank());
+            Reset(ddDefaultCostCenter);
             Set(gInvoiceParseBatchID, gSelectedBatch.ID)
         );
+        Set(gProcessingBatch, false);
         ClearCollect(colBaselineAttachmentNames, ForAll(gSelectedBatch.Attachments, {Name: DisplayName}))
     Children:
       - rectHeader_1:
@@ -36,6 +37,7 @@ Screens:
             Height: =60
             LayoutAlignItems: =LayoutAlignItems.Center
             LayoutDirection: =LayoutDirection.Horizontal
+            LayoutGap: =10
             LayoutJustifyContent: =LayoutJustifyContent.SpaceBetween
             PaddingBottom: =8
             PaddingLeft: =20
@@ -45,80 +47,166 @@ Screens:
             Y: =Parent.Height - 60
           Children:
             - btnBack:
-                Control: Button@0.0.45
+                Control: ModernButton@1.0.0
                 Properties:
+                  Align: =Align.Center
+                  DisplayMode: =If(gFinalizing || gProcessingBatch, DisplayMode.Disabled, DisplayMode.Edit)
+                  FontWeight: =""
                   Height: =36
-                  OnSelect: =Navigate(HomeScreen)
+                  OnSelect: |-
+                    =Clear(colInvoiceParseResults);
+                    Clear(colPendingUploadNames);
+                    Set(gSelectedInvoiceRow, Blank());
+                    Set(gInvoiceParseBatchID, Blank());
+                    Reset(ddDefaultCostCenter);
+                    Reset(rdoProcessingMode);
+                    ResetForm(formBatchUpload);
+                    Navigate(HomeScreen)
+                  PaddingBottom: =5
+                  PaddingLeft: =12
+                  PaddingRight: =12
+                  PaddingTop: =5
+                  RadiusBottomLeft: =4
+                  RadiusBottomRight: =4
+                  RadiusTopLeft: =4
+                  RadiusTopRight: =4
                   Text: ="← Back"
+                  VerticalAlign: =VerticalAlign.Middle
                   Width: =100
             - lblInvoiceCount:
                 Control: Label@2.5.1
                 Properties:
                   Align: =Align.Center
+                  FillPortions: =1
                   Height: =36
                   Size: =10
                   Text: |-
                     =If(
                         gFinalizing,
-                        "⏳ Saving invoices to library...",
-                        CountRows(colInvoiceParseResults) & " invoice(s) ready" &
-                        If(CountRows(Filter(colInvoiceParseResults, ParseError)) > 0, " · " & CountRows(Filter(colInvoiceParseResults, ParseError)) & " need attention", "")
+                        "⏳ Finalizing invoices... Do not leave this page.",
+                        gProcessingBatch,
+                        "⏳ Uploading & parsing invoices... Do not leave this page.",
+                        CountRows(Filter(colInvoiceParseResults, Not(ParseError))) & " invoice(s) ready" &
+                        If(CountRows(Filter(colInvoiceParseResults, ParseError)) > 0, " · " & CountRows(Filter(colInvoiceParseResults, ParseError)) & " parse failed - fix or remove first", "") &
+                        If(
+                            CountRows(Filter(colInvoiceParseResults, Not(ParseError) && (IsBlank(SupplierNameEdit) || IsBlank(TotalAmountEdit) || IsBlank(InvoiceNumberEdit) || IsBlank(InvoiceDateEdit) || IsBlank(BilledToEdit) || IsBlank(CurrencyEdit)))) > 0,
+                            " · " & CountRows(Filter(colInvoiceParseResults, Not(ParseError) && (IsBlank(SupplierNameEdit) || IsBlank(TotalAmountEdit) || IsBlank(InvoiceNumberEdit) || IsBlank(InvoiceDateEdit) || IsBlank(BilledToEdit) || IsBlank(CurrencyEdit)))) & " missing required fields",
+                            ""
+                        ) &
+                        If(
+                            rdoProcessingMode.Selected.Value = "Review each invoice" && CountRows(Filter(colInvoiceParseResults, Not(ParseError) && Not(IsSaved))) > 0,
+                            " · " & CountRows(Filter(colInvoiceParseResults, Not(ParseError) && Not(IsSaved))) & " not saved yet",
+                            ""
+                        )
                     )
                   Width: =300
             - btnDone:
-                Control: Button@0.0.45
+                Control: ModernButton@1.0.0
                 Properties:
+                  Align: =Align.Center
                   DisplayMode: |-
                     =If(
                         gFinalizing ||
+                        gProcessingBatch ||
                         CountRows(colInvoiceParseResults) = 0 ||
-                        IsBlank(gDefaultCostCenter) ||
-                        (rdoProcessingMode.Selected.Value = "Review each invoice" && CountRows(Filter(colInvoiceParseResults, IsBlank(SupplierNameEdit) || IsBlank(TotalAmountEdit) || IsBlank(InvoiceNumberEdit) || IsBlank(InvoiceDateEdit) || IsBlank(BilledToEdit))) > 0),
+                        CountRows(Filter(colInvoiceParseResults, ParseError)) > 0 ||
+                        IsBlank(ddDefaultCostCenter.Selected) ||
+                        CountRows(Filter(colInvoiceParseResults, IsBlank(SupplierNameEdit) || IsBlank(TotalAmountEdit) || IsBlank(InvoiceNumberEdit) || IsBlank(InvoiceDateEdit) || IsBlank(BilledToEdit) || IsBlank(CurrencyEdit))) > 0 ||
+                        (rdoProcessingMode.Selected.Value = "Review each invoice" && CountRows(Filter(colInvoiceParseResults, Not(IsSaved) || IsBlank(DescriptionEdit))) > 0),
                         DisplayMode.Disabled,
                         DisplayMode.Edit
                     )
+                  FontWeight: =""
                   Height: =36
                   OnSelect: |-
                     =Set(gFinalizing, true);
+                    Notify("Finalizing invoices - please do not leave this page.", NotificationType.Warning);
+                    ClearCollect(colFinalizeQueue, Filter(colInvoiceParseResults, Not(IsFinalized)));
+                    Clear(colFinalizeErrors);
                     ForAll(
-                        colInvoiceParseResults,
-                        Finalize_Invoice.Run(
-                            InvoiceURL,
-                            gSelectedBatch.ID,
-                            FileNameBase & "." & Last(Split(FileName, ".")).Value,
-                            InvoiceNumberEdit,
-                            InvoiceDateEdit,
-                            SupplierNameEdit,
-                            BilledToEdit,
-                            Value(If(IsBlank(TotalAmountEdit), "0", TotalAmountEdit)),
-                            Value(If(IsBlank(TaxAmountEdit), "0", TaxAmountEdit)),
-                            CurrencyEdit,
-                            Coalesce(CostCenterEdit, gDefaultCostCenter),
-                            AttentionEdit,
-                            ABNEdit,
-                            ConfidenceScore
+                        colFinalizeQueue,
+                        With(
+                            {
+                                wRowId: RowId,
+                                wFileName: FileName,
+                                wExt: Last(Split(FileName, ".")).Value,
+                                wDate: If(IsBlank(InvoiceDateEdit), "", IfError(Text(DateValue(InvoiceDateEdit), "yyyymmdd"), InvoiceDateEdit))
+                            },
+                            With(
+                                {
+                                    wName: wDate &
+                                        If(IsBlank(SupplierNameEdit), "", " - " & SupplierNameEdit) &
+                                        If(IsBlank(BilledToEdit), "", " - " & BilledToEdit) &
+                                        If(IsBlank(InvoiceNumberEdit), "", " - " & InvoiceNumberEdit) &
+                                        If(IsBlank(AttentionEdit), "", " - " & AttentionEdit) &
+                                        If(IsBlank(DescriptionEdit), "", " - " & DescriptionEdit) &
+                                        If(IsBlank(TotalAmountEdit), "", " - " & CurrencyEdit & TotalAmountEdit) &
+                                        If(IsBlank(TaxAmountEdit), "", " - GST " & CurrencyEdit & TaxAmountEdit)
+                                },
+                                IfError(
+                                    Finalize_Invoice.Run(
+                                        InvoiceURL,
+                                        gSelectedBatch.ID,
+                                        If(
+                                            IsBlank(wName),
+                                            FileNameBase,
+                                            Substitute(Substitute(Substitute(Substitute(Substitute(Substitute(Substitute(Substitute(Substitute(Substitute(wName, "\", ""), "/", ""), ":", ""), "*", ""), "?", ""), """", ""), "<", ""), ">", ""), "#", ""), "%", "")
+                                        ) & "." & wExt,
+                                        InvoiceNumberEdit & "",
+                                        InvoiceDateEdit & "",
+                                        SupplierNameEdit & "",
+                                        BilledToEdit & "",
+                                        Value(If(IsBlank(TotalAmountEdit), "0", TotalAmountEdit)),
+                                        Value(If(IsBlank(TaxAmountEdit), "0", TaxAmountEdit)),
+                                        CurrencyEdit & "",
+                                        Coalesce(CostCenterEdit, ddDefaultCostCenter.Selected.Value),
+                                        AttentionEdit & "",
+                                        ABNEdit & "",
+                                        Coalesce(ConfidenceScore, 0),
+                                        DescriptionEdit & ""
+                                    );
+                                    Patch(colInvoiceParseResults, LookUp(colInvoiceParseResults, RowId = wRowId), {IsFinalized: true});
+                                    true,
+                                    Collect(colFinalizeErrors, {FileName: wFileName, ErrorMessage: FirstError.Message});
+                                    false
+                                )
+                            )
                         )
                     );
                     Set(gFinalizing, false);
-                    Patch(BEUI_InvoiceBatch_Requests, gSelectedBatch, {Status: {Value: "Finalized"}});
-                    Clear(colInvoiceParseResults);
-                    Set(gInvoiceParseBatchID, Blank());
-                    Notify("Batch finalized - invoices saved to the output library.", NotificationType.Success);
-                    Navigate(HomeScreen)
+                    If(
+                        CountRows(colFinalizeErrors) = 0,
+                        Patch(BEUI_InvoiceBatch_Requests, gSelectedBatch, {Status: {Value: "Finalized"}});
+                        Clear(colInvoiceParseResults);
+                        Set(gInvoiceParseBatchID, Blank());
+                        Notify("Batch finalized - invoices saved to the output library.", NotificationType.Success);
+                        Navigate(HomeScreen),
+                        Notify(
+                            CountRows(colFinalizeErrors) & " invoice(s) failed to finalize: " & Concat(colFinalizeErrors, FileName & " → " & ErrorMessage, " · ") & ". Press Done again to retry the failed ones.",
+                            NotificationType.Error
+                        )
+                    )
+                  PaddingBottom: =5
+                  PaddingLeft: =12
+                  PaddingRight: =12
+                  PaddingTop: =5
+                  RadiusBottomLeft: =4
+                  RadiusBottomRight: =4
+                  RadiusTopLeft: =4
+                  RadiusTopRight: =4
                   Text: ="✅ Done"
+                  VerticalAlign: =VerticalAlign.Middle
                   Width: =140
       - containerScroll:
           Control: GroupContainer@1.5.0
           Variant: AutoLayout
           Properties:
+            DropShadow: =DropShadow.None
             Height: =Parent.Height - 120
-            LayoutAlignItems: =LayoutAlignItems.Center
             LayoutDirection: =LayoutDirection.Vertical
             LayoutOverflowY: =LayoutOverflow.Scroll
-            PaddingBottom: =8
-            PaddingLeft: =8
-            PaddingRight: =8
-            PaddingTop: =8
+            PaddingBottom: =10
+            PaddingTop: =10
             Width: =Parent.Width
             Y: =60
           Children:
@@ -126,15 +214,16 @@ Screens:
                 Control: GroupContainer@1.5.0
                 Variant: AutoLayout
                 Properties:
+                  AlignInContainer: =AlignInContainer.Start
                   DropShadow: =DropShadow.None
-                  FillPortions: =0
-                  Height: =400
+                  Height: =450
                   LayoutDirection: =LayoutDirection.Vertical
                   LayoutGap: =4
                   PaddingBottom: =8
                   PaddingLeft: =20
                   PaddingRight: =20
                   PaddingTop: =12
+                  Visible: =Not(gProcessingBatch) && CountRows(colInvoiceParseResults) = 0
                   Width: =Parent.Width
                   X: =40
                   Y: =40
@@ -158,6 +247,7 @@ Screens:
                       Control: GroupContainer@1.5.0
                       Variant: AutoLayout
                       Properties:
+                        AlignInContainer: =AlignInContainer.SetByContainer
                         DropShadow: =DropShadow.None
                         FillPortions: =0
                         Height: =120
@@ -188,7 +278,6 @@ Screens:
                                     Height: =40
                                     InputTextPlaceholder: ="Choose a cost center"
                                     Items: =Choices(BEUI_InvoiceBatch_Requests.CostCenter)
-                                    OnChange: =Set(gDefaultCostCenter, If(IsBlank(Self.Selected), Blank(), Self.Selected.Value))
                                     Width: =Parent.Width
                         - colProcessingMode:
                             Control: GroupContainer@1.5.0
@@ -219,15 +308,20 @@ Screens:
                       Variant: Classic
                       Layout: Vertical
                       Properties:
+                        AlignInContainer: =AlignInContainer.SetByContainer
                         DataSource: =BEUI_InvoiceBatch_Requests
+                        FillPortions: =0
                         Height: =120
                         Item: =gSelectedBatch
                         LayoutMinHeight: =120
                         NumberOfColumns: =1
-                        OnFailure: =Notify("Upload failed. Please try again.", NotificationType.Error)
+                        OnFailure: |-
+                          =Set(gProcessingBatch, false);
+                          Notify("Upload failed. Please try again.", NotificationType.Error)
                         OnSuccess: |-
                           =If(
                               CountRows(colPendingUploadNames) = 0,
+                              Set(gProcessingBatch, false);
                               Notify("Attachment saved.", NotificationType.Success),
                               Set(gParsingTotal, CountRows(colPendingUploadNames));
                               Set(gParsingBaseCount, CountRows(colInvoiceParseResults));
@@ -250,7 +344,10 @@ Screens:
                                                   FileNameBase: wBase,
                                                   InvoiceURL: wURL,
                                                   ParseError: IsBlank(wResult),
+                                                  IsSaved: false,
+                                                  IsFinalized: false,
                                                   CostCenterEdit: "",
+                                                  DescriptionEdit: "",
                                                   JobId: wResult.jobId,
                                                   ConfidenceScore: Value(wResult.confidenceScore),
                                                   InvoiceDateEdit: wResult.invoiceDate,
@@ -282,7 +379,8 @@ Screens:
                                   }
                               );
                               ClearCollect(colBaselineAttachmentNames, ForAll(gSelectedBatch.Attachments, {Name: DisplayName}));
-                              Clear(colPendingUploadNames)
+                              Clear(colPendingUploadNames);
+                              Set(gProcessingBatch, false)
                           )
                         Width: =Parent.Width - 40
                       Children:
@@ -308,47 +406,106 @@ Screens:
                                     Items: =Parent.Default
                                     MaxAttachments: =25
                                     Width: =Parent.Width
-                  - btnUploadParse:
-                      Control: Button@0.0.45
+                  - rowParse:
+                      Control: GroupContainer@1.5.0
+                      Variant: AutoLayout
                       Properties:
-                        Height: =36
-                        OnSelect: |-
-                          =If(
-                              IsBlank(gDefaultCostCenter),
-                              Notify("Please choose a default Cost Center before uploading invoices.", NotificationType.Error),
-                              ClearCollect(colPendingUploadNames, Filter(attInvoices.Attachments, Not(Name in colBaselineAttachmentNames.Name)));
-                              If(
-                                  CountRows(colPendingUploadNames) = 0,
-                                  Notify("Please attach at least one new invoice file first.", NotificationType.Error),
-                                  SubmitForm(formBatchUpload)
-                              )
-                          )
-                        Text: |-
-                          ="📤 Upload & Parse"
-                        Width: =180
-                  - lblParsingProgress:
+                        DropShadow: =DropShadow.None
+                        FillPortions: =0
+                        Height: =100
+                        LayoutDirection: =LayoutDirection.Vertical
+                        LayoutJustifyContent: =LayoutJustifyContent.SpaceBetween
+                        LayoutMinHeight: =16
+                        LayoutMinWidth: =16
+                        PaddingBottom: =8
+                        PaddingLeft: =8
+                        PaddingRight: =8
+                        PaddingTop: =18
+                      Children:
+                        - btnUploadParse:
+                            Control: ModernButton@1.0.0
+                            Properties:
+                              Align: =Align.Center
+                              FontWeight: =""
+                              Height: =36
+                              OnSelect: |-
+                                =If(
+                                    IsBlank(ddDefaultCostCenter.Selected),
+                                    Notify("Please choose a default Cost Center before uploading invoices.", NotificationType.Error),
+                                    ClearCollect(colPendingUploadNames, Filter(attInvoices.Attachments, Not(Name in colBaselineAttachmentNames.Name)));
+                                    If(
+                                        CountRows(colPendingUploadNames) = 0,
+                                        Notify("Please attach at least one new invoice file first.", NotificationType.Error),
+                                        Set(gProcessingBatch, true);
+                                        SubmitForm(formBatchUpload)
+                                    )
+                                )
+                              PaddingBottom: =5
+                              PaddingLeft: =12
+                              PaddingRight: =12
+                              PaddingTop: =5
+                              RadiusBottomLeft: =4
+                              RadiusBottomRight: =4
+                              RadiusTopLeft: =4
+                              RadiusTopRight: =4
+                              Text: |-
+                                ="📤 Upload & Parse"
+                              VerticalAlign: =VerticalAlign.Middle
+                              Width: =180
+                              X: =40
+                              Y: =40
+            - rowProcessing:
+                Control: GroupContainer@1.5.0
+                Variant: AutoLayout
+                Properties:
+                  AlignInContainer: =AlignInContainer.SetByContainer
+                  DropShadow: =DropShadow.None
+                  FillPortions: =0
+                  Height: =220
+                  LayoutAlignItems: =LayoutAlignItems.Center
+                  LayoutDirection: =LayoutDirection.Vertical
+                  LayoutGap: =8
+                  LayoutJustifyContent: =LayoutJustifyContent.Center
+                  PaddingTop: =40
+                  Visible: =gProcessingBatch
+                  Width: =Parent.Width
+                Children:
+                  - lblProcessingTitle:
                       Control: Label@2.5.1
                       Properties:
+                        Align: =Align.Center
                         Color: =RGBA(56, 96, 178, 1)
                         FontWeight: =FontWeight.Bold
-                        Height: =24
+                        Height: =30
+                        Size: =12
+                        Text: |-
+                          =If(
+                              gParsingInvoice,
+                              "⏳ Parsing invoice " & (CountRows(colInvoiceParseResults) - gParsingBaseCount) & " / " & gParsingTotal & "...",
+                              "⏳ Uploading invoice files..."
+                          )
+                        Width: =Parent.Width - 80
+                  - lblProcessingHint:
+                      Control: Label@2.5.1
+                      Properties:
+                        Align: =Align.Center
+                        Color: =RGBA(136, 135, 128, 1)
+                        Height: =22
                         Size: =10
-                        Text: ="⏳ Parsing invoice " & (CountRows(colInvoiceParseResults) - gParsingBaseCount) & " / " & gParsingTotal & "..."
-                        Visible: =gParsingInvoice
-                        Width: =Parent.Width - 40
+                        Text: ="Please keep this page open until processing completes."
+                        Width: =Parent.Width - 80
             - rowReview:
                 Control: GroupContainer@1.5.0
                 Variant: AutoLayout
                 Properties:
+                  AlignInContainer: =AlignInContainer.SetByContainer
                   DropShadow: =DropShadow.None
-                  FillPortions: =0
                   Height: =1000
                   LayoutDirection: =LayoutDirection.Horizontal
                   LayoutGap: =12
-                  PaddingBottom: =8
-                  PaddingLeft: =20
-                  PaddingRight: =20
-                  Visible: =CountRows(colInvoiceParseResults) > 0
+                  PaddingLeft: =10
+                  PaddingRight: =10
+                  Visible: =Not(gProcessingBatch) && CountRows(colInvoiceParseResults) > 0
                   Width: =Parent.Width
                   X: =40
                   Y: =40
@@ -358,8 +515,10 @@ Screens:
                       Variant: AutoLayout
                       Properties:
                         DropShadow: =DropShadow.None
+                        FillPortions: =0
                         Height: =Parent.Height
-                        LayoutDirection: =LayoutDirection.Horizontal
+                        LayoutDirection: =LayoutDirection.Vertical
+                        LayoutGap: =8
                         Width: =380
                       Children:
                         - galInvoiceList:
@@ -368,63 +527,148 @@ Screens:
                             Properties:
                               Height: =Parent.Height
                               Items: =colInvoiceParseResults
-                              OnSelect: =Set(gSelectedInvoiceRow, ThisItem)
-                              TemplateSize: =64
+                              LayoutMinHeight: =300
+                              OnSelect: |-
+                                =Set(gSelectedInvoiceRow, ThisItem);
+                                Reset(txtDetailInvoiceDate);
+                                Reset(txtDetailSupplierName);
+                                Reset(txtDetailBilledTo);
+                                Reset(txtDetailInvoiceNumber);
+                                Reset(txtDetailTotalAmount);
+                                Reset(txtDetailTaxAmount);
+                                Reset(txtDetailCurrency);
+                                Reset(txtDetailAttention);
+                                Reset(txtDetailABN);
+                                Reset(txtDetailDescription);
+                                Reset(ddDetailCostCenter)
+                              TemplateFill: |-
+                                =If(
+                                    ThisItem.RowId = gSelectedInvoiceRow.RowId,
+                                    If(
+                                        ThisItem.ParseError,
+                                        RGBA(240, 128, 132, 1),
+                                        ThisItem.IsSaved,
+                                        RGBA(178, 228, 176, 1),
+                                        RGBA(255, 227, 145, 1)
+                                    ),
+                                    If(
+                                        ThisItem.ParseError,
+                                        RGBA(247, 168, 170, 1),
+                                        ThisItem.IsSaved,
+                                        RGBA(223, 246, 221, 1),
+                                        RGBA(255, 244, 206, 1)
+                                    )
+                                )
+                              TemplatePadding: =10
+                              TemplateSize: =100
                               Width: =Parent.Width
+                              WrapCount: =0
                             Children:
-                              - Container1:
+                              - galInvoiceListButtons:
                                   Control: GroupContainer@1.5.0
                                   Variant: AutoLayout
                                   Properties:
-                                    Height: =64
-                                    LayoutAlignItems: =LayoutAlignItems.Center
-                                    LayoutDirection: =LayoutDirection.Horizontal
+                                    DropShadow: =DropShadow.None
+                                    Height: =30
+                                    LayoutDirection: =LayoutDirection.Vertical
                                     LayoutGap: =10
-                                    PaddingBottom: =8
-                                    PaddingTop: =8
-                                    Width: =Parent.Width
+                                    PaddingLeft: =8
+                                    PaddingRight: =8
+                                    Width: =Parent.Width - 30
+                                    Y: =60
                                   Children:
-                                    - rowInvoice:
-                                        Control: GroupContainer@1.5.0
-                                        Variant: AutoLayout
+                                    - btnRetryParse:
+                                        Control: ModernButton@1.0.0
                                         Properties:
-                                          DropShadow: =DropShadow.None
-                                          Fill: =If(ThisItem.RowId = gSelectedInvoiceRow.RowId, RGBA(241, 239, 232, 1), RGBA(255, 255, 255, 1))
-                                          Height: =64
-                                          LayoutDirection: =LayoutDirection.Vertical
-                                          LayoutGap: =2
-                                          PaddingLeft: =12
-                                          PaddingRight: =12
-                                          PaddingTop: =6
-                                          Width: =Parent.Width
+                                          Align: =Align.Center
+                                          BasePaletteColor: =RGBA(196, 49, 75, 1)
+                                          BorderStyle: =BorderStyle.None
+                                          FontWeight: =""
+                                          Height: =30
+                                          OnSelect: |-
+                                            =With(
+                                                {wResult: IfError(Parse_Invoice.Run(ThisItem.InvoiceURL, gSelectedBatch.ID), Blank())},
+                                                If(
+                                                    IsBlank(wResult),
+                                                    Notify("Parse failed again for " & ThisItem.FileName & ". You can fix the fields manually.", NotificationType.Error),
+                                                    Patch(
+                                                        colInvoiceParseResults,
+                                                        LookUp(colInvoiceParseResults, RowId = ThisItem.RowId),
+                                                        {
+                                                            ParseError: false,
+                                                            IsSaved: false,
+                                                            JobId: wResult.jobId,
+                                                            ConfidenceScore: Value(wResult.confidenceScore),
+                                                            InvoiceDateEdit: wResult.invoiceDate,
+                                                            SupplierNameEdit: wResult.supplierName,
+                                                            BilledToEdit: wResult.billedTo,
+                                                            InvoiceNumberEdit: wResult.invoiceNumber,
+                                                            TotalAmountEdit: Text(Value(wResult.totalAmount), "0.00"),
+                                                            TaxAmountEdit: Text(Value(wResult.taxAmount), "0.00"),
+                                                            CurrencyEdit: wResult.currency,
+                                                            AttentionEdit: wResult.attention,
+                                                            ABNEdit: wResult.supplierABN
+                                                        }
+                                                    );
+                                                    If(
+                                                        gSelectedInvoiceRow.RowId = ThisItem.RowId,
+                                                        Set(gSelectedInvoiceRow, LookUp(colInvoiceParseResults, RowId = ThisItem.RowId));
+                                                        Reset(txtDetailInvoiceDate);
+                                                        Reset(txtDetailSupplierName);
+                                                        Reset(txtDetailBilledTo);
+                                                        Reset(txtDetailInvoiceNumber);
+                                                        Reset(txtDetailTotalAmount);
+                                                        Reset(txtDetailTaxAmount);
+                                                        Reset(txtDetailCurrency);
+                                                        Reset(txtDetailAttention);
+                                                        Reset(txtDetailABN);
+                                                        Reset(txtDetailDescription);
+                                                        Reset(ddDetailCostCenter)
+                                                    );
+                                                    Notify("Parse succeeded for " & ThisItem.FileName & ".", NotificationType.Success)
+                                                )
+                                            )
+                                          PaddingBottom: =5
+                                          PaddingLeft: =8
+                                          PaddingRight: =8
+                                          PaddingTop: =5
+                                          RadiusBottomLeft: =4
+                                          RadiusBottomRight: =4
+                                          RadiusTopLeft: =4
+                                          RadiusTopRight: =4
+                                          Size: =12
+                                          Text: ="↻ Retry"
+                                          VerticalAlign: =VerticalAlign.Middle
+                                          Visible: =ThisItem.ParseError
+                                          Width: =90
                                           X: =40
                                           Y: =40
-                                        Children:
-                                          - lblInvoiceRowTitle:
-                                              Control: Label@2.5.1
-                                              Properties:
-                                                FontWeight: =FontWeight.Bold
-                                                Size: =10
-                                                Text: =If(ThisItem.ParseError, "⚠ ", "") & ThisItem.FileName
-                                                Width: =Parent.Width - 20
-                                          - lblInvoiceRowSubtitle:
-                                              Control: Label@2.5.1
-                                              Properties:
-                                                Color: =RGBA(136, 135, 128, 1)
-                                                Size: =9
-                                                Text: |-
-                                                  =If(ThisItem.ParseError, "Parse failed - fill in manually", ThisItem.SupplierNameEdit & " · " & ThisItem.TotalAmountEdit & " " & ThisItem.CurrencyEdit) &
-                                                  " · CC: " & Coalesce(ThisItem.CostCenterEdit, gDefaultCostCenter)
-                                                Width: =Parent.Width - 20
                                     - btnSelectInvoiceRow:
                                         Control: ModernButton@1.0.0
                                         Properties:
                                           Align: =Align.Center
-                                          BasePaletteColor: =RGBA(5, 102, 178, 1)
+                                          BasePaletteColor: |-
+                                            =If(
+                                                ThisItem.RowId = gSelectedInvoiceRow.RowId,
+                                                RGBA(83, 74, 183, 1),
+                                                If(ThisItem.ParseError, RGBA(196, 49, 75, 1), RGBA(5, 102, 178, 1))
+                                            )
                                           BorderStyle: =BorderStyle.None
                                           FontWeight: =""
-                                          Height: =64
-                                          OnSelect: =Set(gSelectedInvoiceRow, ThisItem)
+                                          Height: =30
+                                          OnSelect: |-
+                                            =Set(gSelectedInvoiceRow, ThisItem);
+                                            Reset(txtDetailInvoiceDate);
+                                            Reset(txtDetailSupplierName);
+                                            Reset(txtDetailBilledTo);
+                                            Reset(txtDetailInvoiceNumber);
+                                            Reset(txtDetailTotalAmount);
+                                            Reset(txtDetailTaxAmount);
+                                            Reset(txtDetailCurrency);
+                                            Reset(txtDetailAttention);
+                                            Reset(txtDetailABN);
+                                            Reset(txtDetailDescription);
+                                            Reset(ddDetailCostCenter)
                                           PaddingBottom: =5
                                           PaddingLeft: =12
                                           PaddingRight: =12
@@ -433,207 +677,672 @@ Screens:
                                           RadiusBottomRight: =4
                                           RadiusTopLeft: =4
                                           RadiusTopRight: =4
-                                          Text: ="Select"
+                                          Size: =12
+                                          Text: =If(ThisItem.RowId = gSelectedInvoiceRow.RowId, "✓ Selected", If(ThisItem.ParseError, "Fix", "Select"))
                                           VerticalAlign: =VerticalAlign.Middle
-                                          Width: =120
-                                          X: =40
+                                          Width: =100
                                           Y: =40
+                              - lblInvoiceRowSubtitle:
+                                  Control: Label@2.5.1
+                                  Properties:
+                                    Color: =If(ThisItem.ParseError, RGBA(168, 0, 0, 1), RGBA(136, 135, 128, 1))
+                                    Height: =18
+                                    PaddingBottom: =0
+                                    PaddingLeft: =8
+                                    PaddingRight: =8
+                                    Size: =8
+                                    Text: |-
+                                      =If(
+                                          ThisItem.ParseError,
+                                          "❌ Parse failed - retry, fix manually, or remove to continue",
+                                          ThisItem.SupplierNameEdit & " · " & ThisItem.TotalAmountEdit & " " & ThisItem.CurrencyEdit &
+                                          " · CC: " & Coalesce(ThisItem.CostCenterEdit, ddDefaultCostCenter.Selected.Value)
+                                      )
+                                    Width: =Parent.Width - 22
+                                    X: =1
+                                    Y: =28
+                              - lblInvoiceRowTitle:
+                                  Control: Label@2.5.1
+                                  Properties:
+                                    FontWeight: =FontWeight.Bold
+                                    Height: =18
+                                    PaddingLeft: =8
+                                    Size: =9
+                                    Text: =If(ThisItem.ParseError, "⚠ ", If(ThisItem.IsSaved, "✔ ", "")) & ThisItem.FileName
+                                    Width: =Parent.Width - 22
+                                    X: =1
+                                    Y: =13
                   - rowInvoiceDetail:
                       Control: GroupContainer@1.5.0
                       Variant: AutoLayout
                       Properties:
+                        AlignInContainer: =AlignInContainer.Start
                         DropShadow: =DropShadow.None
                         Fill: =RGBA(255, 255, 255, 1)
                         Height: =Parent.Height
+                        LayoutAlignItems: =LayoutAlignItems.Stretch
                         LayoutDirection: =LayoutDirection.Vertical
                         LayoutGap: =6
-                        LayoutMinHeight: =800
-                        PaddingBottom: =12
-                        PaddingRight: =12
+                        LayoutMinHeight: =300
+                        PaddingBottom: =10
+                        PaddingLeft: =10
+                        PaddingRight: =10
+                        PaddingTop: =10
                         Visible: =Not(IsBlank(gSelectedInvoiceRow))
                         Width: =Parent.Width - 400
                       Children:
-                        - lblDetailCostCenter:
-                            Control: Label@2.5.1
+                        - rowDetailNamePreview:
+                            Control: GroupContainer@1.5.0
+                            Variant: AutoLayout
                             Properties:
-                              FontWeight: =FontWeight.Bold
-                              Size: =9
-                              Text: |-
-                                ="Cost Center (leave blank to inherit: " & gDefaultCostCenter & ")"
-                              Width: =300
-                        - ddDetailCostCenter:
-                            Control: ComboBox@0.0.51
+                              AlignInContainer: =AlignInContainer.SetByContainer
+                              DropShadow: =DropShadow.None
+                              Fill: =RGBA(243, 242, 253, 1)
+                              FillPortions: =0
+                              Height: =64
+                              LayoutDirection: =LayoutDirection.Vertical
+                              LayoutGap: =2
+                              PaddingBottom: =6
+                              PaddingLeft: =8
+                              PaddingRight: =8
+                              PaddingTop: =6
+                            Children:
+                              - lblDetailNamePreviewCaption:
+                                  Control: Label@2.5.1
+                                  Properties:
+                                    Color: =RGBA(136, 135, 128, 1)
+                                    Height: =18
+                                    Size: =9
+                                    Text: ="Invoice Name Preview"
+                                    Width: =Parent.Width - 16
+                              - lblDetailNamePreview:
+                                  Control: Label@2.5.1
+                                  Properties:
+                                    Color: =RGBA(83, 74, 183, 1)
+                                    FontWeight: =FontWeight.Semibold
+                                    Height: =30
+                                    Size: =10
+                                    Text: |-
+                                      =With(
+                                          {
+                                              wExt: Last(Split(gSelectedInvoiceRow.FileName, ".")).Value,
+                                              wDate: If(
+                                                  IsBlank(txtDetailInvoiceDate.Text),
+                                                  "",
+                                                  IfError(Text(DateValue(txtDetailInvoiceDate.Text), "yyyymmdd"), txtDetailInvoiceDate.Text)
+                                              )
+                                          },
+                                          With(
+                                              {
+                                                  wName: wDate &
+                                                      If(IsBlank(txtDetailSupplierName.Text), "", " - " & txtDetailSupplierName.Text) &
+                                                      If(IsBlank(txtDetailBilledTo.Text), "", " - " & txtDetailBilledTo.Text) &
+                                                      If(IsBlank(txtDetailInvoiceNumber.Text), "", " - " & txtDetailInvoiceNumber.Text) &
+                                                      If(IsBlank(txtDetailAttention.Text), "", " - " & txtDetailAttention.Text) &
+                                                      If(IsBlank(txtDetailDescription.Text), "", " - " & txtDetailDescription.Text) &
+                                                      If(IsBlank(txtDetailTotalAmount.Text), "", " - " & txtDetailCurrency.Text & txtDetailTotalAmount.Text) &
+                                                      If(IsBlank(txtDetailTaxAmount.Text), "", " - GST " & txtDetailCurrency.Text & txtDetailTaxAmount.Text)
+                                              },
+                                              If(
+                                                  IsBlank(wName),
+                                                  gSelectedInvoiceRow.FileNameBase,
+                                                  Substitute(Substitute(Substitute(Substitute(Substitute(Substitute(Substitute(Substitute(Substitute(Substitute(wName, "\", ""), "/", ""), ":", ""), "*", ""), "?", ""), """", ""), "<", ""), ">", ""), "#", ""), "%", "")
+                                              ) & "." & wExt
+                                          )
+                                      )
+                                    Width: =Parent.Width - 16
+                        - rowDetailPrimaryFields:
+                            Control: GroupContainer@1.5.0
+                            Variant: AutoLayout
                             Properties:
-                              DefaultSelectedItems: |-
-                                =If(
-                                    IsBlank(gSelectedInvoiceRow.CostCenterEdit),
-                                    [],
-                                    [LookUp(Choices(BEUI_InvoiceBatch_Requests.CostCenter), Value = gSelectedInvoiceRow.CostCenterEdit)]
-                                )
-                              Height: =36
-                              InputTextPlaceholder: ="Inherit default"
-                              Items: =Choices(BEUI_InvoiceBatch_Requests.CostCenter)
-                              OnChange: |-
-                                =Patch(
-                                    colInvoiceParseResults,
-                                    LookUp(colInvoiceParseResults, RowId = gSelectedInvoiceRow.RowId),
-                                    {CostCenterEdit: If(IsBlank(Self.Selected), "", Self.Selected.Value)}
-                                );
-                                Set(gSelectedInvoiceRow, LookUp(colInvoiceParseResults, RowId = gSelectedInvoiceRow.RowId))
-                              Width: =300
+                              AlignInContainer: =AlignInContainer.SetByContainer
+                              DropShadow: =DropShadow.None
+                              FillPortions: =0
+                              Height: =100
+                              LayoutAlignItems: =LayoutAlignItems.Center
+                              LayoutDirection: =LayoutDirection.Horizontal
+                              LayoutMinHeight: =16
+                              LayoutMinWidth: =16
+                              PaddingBottom: =8
+                              PaddingTop: =8
+                              X: =40
+                              Y: =40
+                            Children:
+                              - colDetailCostCenter:
+                                  Control: GroupContainer@1.5.0
+                                  Variant: AutoLayout
+                                  Properties:
+                                    DropShadow: =DropShadow.None
+                                    LayoutDirection: =LayoutDirection.Vertical
+                                    LayoutMinHeight: =16
+                                    LayoutMinWidth: =16
+                                    PaddingBottom: =8
+                                    PaddingLeft: =8
+                                    PaddingRight: =8
+                                    PaddingTop: =8
+                                  Children:
+                                    - lblDetailCostCenter:
+                                        Control: Label@2.5.1
+                                        Properties:
+                                          FontWeight: =FontWeight.Semibold
+                                          Height: =30
+                                          Size: =9
+                                          Text: ="Cost Center"
+                                          Width: =Parent.Width - 10
+                                          X: =40
+                                          Y: =40
+                                    - ddDetailCostCenter:
+                                        Control: ModernCombobox@1.1.1
+                                        Properties:
+                                          AllowExternalSelectedItems: =false
+                                          DefaultSelectedItems: |-
+                                            =If(
+                                                IsBlank(gSelectedInvoiceRow.CostCenterEdit),
+                                                [],
+                                                [LookUp(Choices(BEUI_InvoiceBatch_Requests.CostCenter), Value = gSelectedInvoiceRow.CostCenterEdit)]
+                                            )
+                                          FontWeight: =""
+                                          Height: =36
+                                          InputTextPlaceholder: ="Inherit default"
+                                          ItemDisplayText: =ThisItem.Value
+                                          Items: =Choices(BEUI_InvoiceBatch_Requests.CostCenter)
+                                          OnChange: |-
+                                            =Patch(
+                                                colInvoiceParseResults,
+                                                LookUp(colInvoiceParseResults, RowId = gSelectedInvoiceRow.RowId),
+                                                {CostCenterEdit: If(IsBlank(Self.Selected), "", Self.Selected.Value)}
+                                            );
+                                            Set(gSelectedInvoiceRow, LookUp(colInvoiceParseResults, RowId = gSelectedInvoiceRow.RowId))
+                                          SelectMultiple: =false
+                                          Size: =0
+                                          Width: =Parent.Width - 10
+                                          X: =40
+                                          Y: =40
+                              - colDetailInvoiceDate:
+                                  Control: GroupContainer@1.5.0
+                                  Variant: AutoLayout
+                                  Properties:
+                                    DropShadow: =DropShadow.None
+                                    LayoutDirection: =LayoutDirection.Vertical
+                                    LayoutMinHeight: =16
+                                    LayoutMinWidth: =16
+                                    PaddingBottom: =8
+                                    PaddingLeft: =8
+                                    PaddingRight: =8
+                                    PaddingTop: =8
+                                  Children:
+                                    - lblDetailInvoiceDate:
+                                        Control: Label@2.5.1
+                                        Properties:
+                                          FontWeight: =FontWeight.Semibold
+                                          Height: =30
+                                          Size: =9
+                                          Text: ="Invoice Date *"
+                                          Width: =Parent.Width - 10
+                                          X: =40
+                                          Y: =40
+                                    - txtDetailInvoiceDate:
+                                        Control: ModernTextInput@1.1.1
+                                        Properties:
+                                          Default: =gSelectedInvoiceRow.InvoiceDateEdit
+                                          FontWeight: =""
+                                          Height: =36
+                                          MaxLength: =-1
+                                          Placeholder: =""
+                                          Size: =0
+                                          TriggerOutput: =TriggerOutput.FocusOut
+                                          Width: =Parent.Width - 10
+                                          X: =40
+                                          Y: =40
+                              - colDetailSupplierName:
+                                  Control: GroupContainer@1.5.0
+                                  Variant: AutoLayout
+                                  Properties:
+                                    DropShadow: =DropShadow.None
+                                    LayoutDirection: =LayoutDirection.Vertical
+                                    LayoutMinHeight: =16
+                                    LayoutMinWidth: =16
+                                    PaddingBottom: =8
+                                    PaddingLeft: =8
+                                    PaddingRight: =8
+                                    PaddingTop: =8
+                                  Children:
+                                    - lblDetailSupplierName:
+                                        Control: Label@2.5.1
+                                        Properties:
+                                          FontWeight: =FontWeight.Semibold
+                                          Height: =30
+                                          Size: =9
+                                          Text: ="Supplier Name *"
+                                          Width: =Parent.Width - 10
+                                          X: =40
+                                          Y: =40
+                                    - txtDetailSupplierName:
+                                        Control: ModernTextInput@1.1.1
+                                        Properties:
+                                          Default: =gSelectedInvoiceRow.SupplierNameEdit
+                                          FontWeight: =""
+                                          Height: =36
+                                          MaxLength: =-1
+                                          Placeholder: =""
+                                          Size: =0
+                                          TriggerOutput: =TriggerOutput.FocusOut
+                                          Width: =Parent.Width - 10
+                                          X: =40
+                                          Y: =40
+                              - colDetailBilledTo:
+                                  Control: GroupContainer@1.5.0
+                                  Variant: AutoLayout
+                                  Properties:
+                                    DropShadow: =DropShadow.None
+                                    LayoutDirection: =LayoutDirection.Vertical
+                                    LayoutMinHeight: =16
+                                    LayoutMinWidth: =16
+                                    PaddingBottom: =8
+                                    PaddingLeft: =8
+                                    PaddingRight: =8
+                                    PaddingTop: =8
+                                    Width: =Parent.Width
+                                  Children:
+                                    - lblDetailBilledTo:
+                                        Control: Label@2.5.1
+                                        Properties:
+                                          FontWeight: =FontWeight.Semibold
+                                          Height: =30
+                                          Size: =9
+                                          Text: ="Billed To *"
+                                          Width: =Parent.Width - 10
+                                          X: =40
+                                          Y: =40
+                                    - txtDetailBilledTo:
+                                        Control: ModernTextInput@1.1.1
+                                        Properties:
+                                          Default: =gSelectedInvoiceRow.BilledToEdit
+                                          FontWeight: =""
+                                          Height: =36
+                                          MaxLength: =-1
+                                          Placeholder: =""
+                                          Size: =0
+                                          TriggerOutput: =TriggerOutput.FocusOut
+                                          Width: =Parent.Width - 10
+                                          X: =40
+                                          Y: =40
+                        - rowDetailAmountFields:
+                            Control: GroupContainer@1.5.0
+                            Variant: AutoLayout
+                            Properties:
+                              AlignInContainer: =AlignInContainer.SetByContainer
+                              DropShadow: =DropShadow.None
+                              FillPortions: =0
+                              Height: =80
+                              LayoutAlignItems: =LayoutAlignItems.Center
+                              LayoutDirection: =LayoutDirection.Horizontal
+                              LayoutMinHeight: =16
+                              LayoutMinWidth: =16
+                            Children:
+                              - colDetailInvoiceNumber:
+                                  Control: GroupContainer@1.5.0
+                                  Variant: AutoLayout
+                                  Properties:
+                                    DropShadow: =DropShadow.None
+                                    LayoutDirection: =LayoutDirection.Vertical
+                                    LayoutMinHeight: =16
+                                    LayoutMinWidth: =16
+                                    PaddingBottom: =8
+                                    PaddingLeft: =8
+                                    PaddingRight: =8
+                                  Children:
+                                    - lblDetailInvoiceNumber:
+                                        Control: Label@2.5.1
+                                        Properties:
+                                          FontWeight: =FontWeight.Semibold
+                                          Height: =30
+                                          Size: =9
+                                          Text: ="Invoice Number *"
+                                          Width: =Parent.Width - 10
+                                          X: =40
+                                          Y: =40
+                                    - txtDetailInvoiceNumber:
+                                        Control: ModernTextInput@1.1.1
+                                        Properties:
+                                          Default: =gSelectedInvoiceRow.InvoiceNumberEdit
+                                          FontWeight: =""
+                                          Height: =36
+                                          MaxLength: =-1
+                                          Placeholder: =""
+                                          Size: =0
+                                          TriggerOutput: =TriggerOutput.FocusOut
+                                          Width: =Parent.Width - 10
+                                          X: =40
+                                          Y: =40
+                              - colDetailTotalAmount:
+                                  Control: GroupContainer@1.5.0
+                                  Variant: AutoLayout
+                                  Properties:
+                                    DropShadow: =DropShadow.None
+                                    LayoutDirection: =LayoutDirection.Vertical
+                                    LayoutMinHeight: =16
+                                    LayoutMinWidth: =16
+                                    PaddingLeft: =8
+                                    PaddingRight: =8
+                                  Children:
+                                    - lblDetailTotalAmount:
+                                        Control: Label@2.5.1
+                                        Properties:
+                                          FontWeight: =FontWeight.Semibold
+                                          Height: =30
+                                          Size: =9
+                                          Text: ="Total Amount *"
+                                          Width: =Parent.Width - 10
+                                          X: =40
+                                          Y: =40
+                                    - txtDetailTotalAmount:
+                                        Control: ModernTextInput@1.1.1
+                                        Properties:
+                                          Default: =gSelectedInvoiceRow.TotalAmountEdit
+                                          FontWeight: =""
+                                          Height: =36
+                                          MaxLength: =-1
+                                          Placeholder: =""
+                                          Size: =0
+                                          TriggerOutput: =TriggerOutput.FocusOut
+                                          Width: =Parent.Width - 10
+                                          X: =40
+                                          Y: =40
+                              - colDetailTaxAmount:
+                                  Control: GroupContainer@1.5.0
+                                  Variant: AutoLayout
+                                  Properties:
+                                    DropShadow: =DropShadow.None
+                                    LayoutDirection: =LayoutDirection.Vertical
+                                    LayoutMinHeight: =16
+                                    LayoutMinWidth: =16
+                                    PaddingLeft: =8
+                                    PaddingRight: =8
+                                  Children:
+                                    - lblDetailTaxAmount:
+                                        Control: Label@2.5.1
+                                        Properties:
+                                          FontWeight: =FontWeight.Semibold
+                                          Height: =30
+                                          Size: =9
+                                          Text: ="GST / Tax"
+                                          Width: =Parent.Width - 10
+                                          X: =40
+                                          Y: =40
+                                    - txtDetailTaxAmount:
+                                        Control: ModernTextInput@1.1.1
+                                        Properties:
+                                          Default: =gSelectedInvoiceRow.TaxAmountEdit
+                                          FontWeight: =""
+                                          Height: =36
+                                          MaxLength: =-1
+                                          Placeholder: =""
+                                          Size: =0
+                                          TriggerOutput: =TriggerOutput.FocusOut
+                                          Width: =Parent.Width - 10
+                                          X: =40
+                                          Y: =40
+                              - colDetailCurrency:
+                                  Control: GroupContainer@1.5.0
+                                  Variant: AutoLayout
+                                  Properties:
+                                    DropShadow: =DropShadow.None
+                                    LayoutDirection: =LayoutDirection.Vertical
+                                    LayoutMinHeight: =16
+                                    LayoutMinWidth: =16
+                                    PaddingLeft: =8
+                                    PaddingRight: =8
+                                  Children:
+                                    - lblDetailCurrency:
+                                        Control: Label@2.5.1
+                                        Properties:
+                                          FontWeight: =FontWeight.Semibold
+                                          Height: =30
+                                          Size: =9
+                                          Text: ="Currency *"
+                                          Width: =Parent.Width - 10
+                                          X: =40
+                                          Y: =40
+                                    - txtDetailCurrency:
+                                        Control: ModernTextInput@1.1.1
+                                        Properties:
+                                          Default: =gSelectedInvoiceRow.CurrencyEdit
+                                          FontWeight: =""
+                                          Height: =36
+                                          MaxLength: =-1
+                                          Placeholder: =""
+                                          Size: =0
+                                          TriggerOutput: =TriggerOutput.FocusOut
+                                          Width: =Parent.Width - 10
+                                          X: =40
+                                          Y: =40
+                        - rowDetailDescription:
+                            Control: GroupContainer@1.5.0
+                            Variant: AutoLayout
+                            Properties:
+                              AlignInContainer: =AlignInContainer.SetByContainer
+                              DropShadow: =DropShadow.None
+                              FillPortions: =0
+                              Height: =90
+                              LayoutAlignItems: =LayoutAlignItems.Center
+                              LayoutDirection: =LayoutDirection.Horizontal
+                              LayoutMinHeight: =16
+                              LayoutMinWidth: =16
+                            Children:
+                              - colDetailDescription:
+                                  Control: GroupContainer@1.5.0
+                                  Variant: AutoLayout
+                                  Properties:
+                                    DropShadow: =DropShadow.None
+                                    LayoutDirection: =LayoutDirection.Vertical
+                                    LayoutMinHeight: =16
+                                    LayoutMinWidth: =16
+                                    PaddingLeft: =8
+                                    PaddingRight: =8
+                                  Children:
+                                    - lblDetailDescription:
+                                        Control: Label@2.5.1
+                                        Properties:
+                                          FontWeight: =FontWeight.Semibold
+                                          Height: =30
+                                          Size: =9
+                                          Text: ="Description" & If(rdoProcessingMode.Selected.Value = "Review each invoice", " *", "")
+                                          Width: =Parent.Width - 10
+                                    - txtDetailDescription:
+                                        Control: ModernTextInput@1.1.1
+                                        Properties:
+                                          Default: =gSelectedInvoiceRow.DescriptionEdit
+                                          FontWeight: =""
+                                          Height: =36
+                                          MaxLength: =-1
+                                          Placeholder: ="Enter a short description for this invoice"
+                                          Size: =0
+                                          TriggerOutput: =TriggerOutput.FocusOut
+                                          Width: =Parent.Width - 10
                         - rowInvoiceFullFields:
                             Control: GroupContainer@1.5.0
                             Variant: AutoLayout
                             Properties:
+                              AlignInContainer: =AlignInContainer.SetByContainer
                               DropShadow: =DropShadow.None
                               FillPortions: =0
-                              Height: =800
-                              LayoutDirection: =LayoutDirection.Vertical
-                              LayoutGap: =6
+                              Height: =100
+                              LayoutDirection: =LayoutDirection.Horizontal
                               Visible: =rdoProcessingMode.Selected.Value = "Review each invoice"
                               Width: =300
                             Children:
-                              - lblDetailInvoiceDate:
-                                  Control: Label@2.5.1
+                              - colDetailAttention:
+                                  Control: GroupContainer@1.5.0
+                                  Variant: AutoLayout
                                   Properties:
-                                    Size: =9
-                                    Text: ="Invoice Date *"
-                                    Width: =300
-                              - txtDetailInvoiceDate:
-                                  Control: TextInput@0.0.54
+                                    DropShadow: =DropShadow.None
+                                    LayoutDirection: =LayoutDirection.Vertical
+                                    LayoutMinHeight: =16
+                                    LayoutMinWidth: =16
+                                    PaddingBottom: =8
+                                    PaddingLeft: =8
+                                    PaddingRight: =8
+                                    PaddingTop: =8
+                                  Children:
+                                    - lblDetailAttention:
+                                        Control: Label@2.5.1
+                                        Properties:
+                                          FontWeight: =FontWeight.Semibold
+                                          Size: =9
+                                          Text: ="Attention"
+                                          Width: =Parent.Width - 10
+                                          X: =40
+                                          Y: =40
+                                    - txtDetailAttention:
+                                        Control: ModernTextInput@1.1.1
+                                        Properties:
+                                          Default: =gSelectedInvoiceRow.AttentionEdit
+                                          FontWeight: =""
+                                          Height: =36
+                                          MaxLength: =-1
+                                          Placeholder: =""
+                                          Size: =0
+                                          TriggerOutput: =TriggerOutput.FocusOut
+                                          Width: =Parent.Width - 10
+                                          X: =40
+                                          Y: =40
+                              - colDetailABN:
+                                  Control: GroupContainer@1.5.0
+                                  Variant: AutoLayout
                                   Properties:
+                                    DropShadow: =DropShadow.None
+                                    LayoutDirection: =LayoutDirection.Vertical
+                                    LayoutMinHeight: =16
+                                    LayoutMinWidth: =16
+                                    PaddingBottom: =8
+                                    PaddingLeft: =8
+                                    PaddingRight: =8
+                                    PaddingTop: =8
+                                  Children:
+                                    - lblDetailABN:
+                                        Control: Label@2.5.1
+                                        Properties:
+                                          FontWeight: =FontWeight.Semibold
+                                          Size: =9
+                                          Text: ="ABN"
+                                          Width: =Parent.Width - 10
+                                          X: =40
+                                          Y: =40
+                                    - txtDetailABN:
+                                        Control: ModernTextInput@1.1.1
+                                        Properties:
+                                          Default: =gSelectedInvoiceRow.ABNEdit
+                                          FontWeight: =""
+                                          Height: =36
+                                          MaxLength: =-1
+                                          Placeholder: =""
+                                          Size: =0
+                                          TriggerOutput: =TriggerOutput.FocusOut
+                                          Width: =Parent.Width - 10
+                                          X: =40
+                                          Y: =40
+                        - rowDetailActions:
+                            Control: GroupContainer@1.5.0
+                            Variant: AutoLayout
+                            Properties:
+                              AlignInContainer: =AlignInContainer.SetByContainer
+                              DropShadow: =DropShadow.None
+                              FillPortions: =0
+                              Height: =36
+                              LayoutDirection: =LayoutDirection.Horizontal
+                              LayoutGap: =10
+                              LayoutJustifyContent: =LayoutJustifyContent.End
+                              LayoutMinHeight: =16
+                              LayoutMinWidth: =16
+                            Children:
+                              - btnViewInvoiceFile:
+                                  Control: ModernButton@1.0.0
+                                  Properties:
+                                    Align: =Align.Center
+                                    BasePaletteColor: =RGBA(96, 94, 92, 1)
+                                    FontWeight: =""
                                     Height: =36
-                                    Value: =gSelectedInvoiceRow.InvoiceDateEdit
-                                    Width: =300
-                              - lblDetailSupplierName:
-                                  Control: Label@2.5.1
+                                    OnSelect: =Launch(gSelectedInvoiceRow.InvoiceURL, {}, LaunchTarget.New)
+                                    PaddingBottom: =5
+                                    PaddingLeft: =12
+                                    PaddingRight: =12
+                                    PaddingTop: =5
+                                    RadiusBottomLeft: =4
+                                    RadiusBottomRight: =4
+                                    RadiusTopLeft: =4
+                                    RadiusTopRight: =4
+                                    Text: |-
+                                      ="📄 View File"
+                                    VerticalAlign: =VerticalAlign.Middle
+                                    Width: =140
+                                    X: =40
+                                    Y: =40
+                              - btnRemoveRow:
+                                  Control: ModernButton@1.0.0
                                   Properties:
-                                    Size: =9
-                                    Text: ="Supplier Name *"
-                                    Width: =300
-                              - txtDetailSupplierName:
-                                  Control: TextInput@0.0.54
-                                  Properties:
-                                    Height: =36
-                                    Value: =gSelectedInvoiceRow.SupplierNameEdit
-                                    Width: =300
-                              - lblDetailBilledTo:
-                                  Control: Label@2.5.1
-                                  Properties:
-                                    Size: =9
-                                    Text: ="Billed To *"
-                                    Width: =300
-                              - txtDetailBilledTo:
-                                  Control: TextInput@0.0.54
-                                  Properties:
-                                    Height: =36
-                                    Value: =gSelectedInvoiceRow.BilledToEdit
-                                    Width: =300
-                              - lblDetailInvoiceNumber:
-                                  Control: Label@2.5.1
-                                  Properties:
-                                    Size: =9
-                                    Text: ="Invoice Number *"
-                                    Width: =300
-                              - txtDetailInvoiceNumber:
-                                  Control: TextInput@0.0.54
-                                  Properties:
-                                    Height: =36
-                                    Value: =gSelectedInvoiceRow.InvoiceNumberEdit
-                                    Width: =300
-                              - lblDetailTotalAmount:
-                                  Control: Label@2.5.1
-                                  Properties:
-                                    Size: =9
-                                    Text: ="Total Amount *"
-                                    Width: =300
-                              - txtDetailTotalAmount:
-                                  Control: TextInput@0.0.54
-                                  Properties:
-                                    Height: =36
-                                    Value: =gSelectedInvoiceRow.TotalAmountEdit
-                                    Width: =300
-                              - lblDetailTaxAmount:
-                                  Control: Label@2.5.1
-                                  Properties:
-                                    Size: =9
-                                    Text: ="Tax Amount"
-                                    Width: =300
-                              - txtDetailTaxAmount:
-                                  Control: TextInput@0.0.54
-                                  Properties:
-                                    Height: =36
-                                    Value: =gSelectedInvoiceRow.TaxAmountEdit
-                                    Width: =300
-                              - lblDetailCurrency:
-                                  Control: Label@2.5.1
-                                  Properties:
-                                    Size: =9
-                                    Text: ="Currency"
-                                    Width: =300
-                              - txtDetailCurrency:
-                                  Control: TextInput@0.0.54
-                                  Properties:
-                                    Height: =36
-                                    Value: =gSelectedInvoiceRow.CurrencyEdit
-                                    Width: =300
-                              - lblDetailAttention:
-                                  Control: Label@2.5.1
-                                  Properties:
-                                    Size: =9
-                                    Text: ="Attention"
-                                    Width: =300
-                              - txtDetailAttention:
-                                  Control: TextInput@0.0.54
-                                  Properties:
-                                    Height: =36
-                                    Value: =gSelectedInvoiceRow.AttentionEdit
-                                    Width: =300
-                              - lblDetailABN:
-                                  Control: Label@2.5.1
-                                  Properties:
-                                    Size: =9
-                                    Text: ="ABN"
-                                    Width: =300
-                              - txtDetailABN:
-                                  Control: TextInput@0.0.54
-                                  Properties:
-                                    Height: =36
-                                    Value: =gSelectedInvoiceRow.ABNEdit
-                                    Width: =300
-                              - btnSaveRow:
-                                  Control: Button@0.0.45
-                                  Properties:
+                                    Align: =Align.Center
+                                    FontWeight: =""
                                     Height: =36
                                     OnSelect: |-
-                                      =Patch(
-                                          colInvoiceParseResults,
-                                          LookUp(colInvoiceParseResults, RowId = gSelectedInvoiceRow.RowId),
-                                          {
-                                              InvoiceDateEdit: txtDetailInvoiceDate.Value,
-                                              SupplierNameEdit: txtDetailSupplierName.Value,
-                                              BilledToEdit: txtDetailBilledTo.Value,
-                                              InvoiceNumberEdit: txtDetailInvoiceNumber.Value,
-                                              TotalAmountEdit: txtDetailTotalAmount.Value,
-                                              TaxAmountEdit: txtDetailTaxAmount.Value,
-                                              CurrencyEdit: txtDetailCurrency.Value,
-                                              AttentionEdit: txtDetailAttention.Value,
-                                              ABNEdit: txtDetailABN.Value,
-                                              ParseError: false
-                                          }
-                                      );
-                                      Set(gSelectedInvoiceRow, LookUp(colInvoiceParseResults, RowId = gSelectedInvoiceRow.RowId));
-                                      Notify("Row saved", NotificationType.Success)
+                                      =Remove(colInvoiceParseResults, LookUp(colInvoiceParseResults, RowId = gSelectedInvoiceRow.RowId));
+                                      Set(gSelectedInvoiceRow, Blank())
+                                    PaddingBottom: =5
+                                    PaddingLeft: =12
+                                    PaddingRight: =12
+                                    PaddingTop: =5
+                                    RadiusBottomLeft: =4
+                                    RadiusBottomRight: =4
+                                    RadiusTopLeft: =4
+                                    RadiusTopRight: =4
+                                    Text: |-
+                                      ="🗑 Remove"
+                                    VerticalAlign: =VerticalAlign.Middle
+                                    Width: =140
+                                    X: =40
+                                    Y: =40
+                              - btnSaveRow:
+                                  Control: ModernButton@1.0.0
+                                  Properties:
+                                    Align: =Align.Center
+                                    FontWeight: =""
+                                    Height: =36
+                                    OnSelect: |-
+                                      =If(
+                                          IsBlank(txtDetailInvoiceDate.Text) || IsBlank(txtDetailSupplierName.Text) || IsBlank(txtDetailBilledTo.Text) || IsBlank(txtDetailInvoiceNumber.Text) || IsBlank(txtDetailTotalAmount.Text) || IsBlank(txtDetailCurrency.Text) || (rdoProcessingMode.Selected.Value = "Review each invoice" && IsBlank(txtDetailDescription.Text)),
+                                          Notify("Please fill in all required fields (*) before saving.", NotificationType.Error),
+                                          Patch(
+                                              colInvoiceParseResults,
+                                              LookUp(colInvoiceParseResults, RowId = gSelectedInvoiceRow.RowId),
+                                              {
+                                                  InvoiceDateEdit: txtDetailInvoiceDate.Text,
+                                                  SupplierNameEdit: txtDetailSupplierName.Text,
+                                                  BilledToEdit: txtDetailBilledTo.Text,
+                                                  InvoiceNumberEdit: txtDetailInvoiceNumber.Text,
+                                                  TotalAmountEdit: txtDetailTotalAmount.Text,
+                                                  TaxAmountEdit: txtDetailTaxAmount.Text,
+                                                  CurrencyEdit: txtDetailCurrency.Text,
+                                                  AttentionEdit: txtDetailAttention.Text,
+                                                  ABNEdit: txtDetailABN.Text,
+                                                  DescriptionEdit: txtDetailDescription.Text,
+                                                  ParseError: false,
+                                                  IsSaved: true
+                                              }
+                                          );
+                                          Set(gSelectedInvoiceRow, LookUp(colInvoiceParseResults, RowId = gSelectedInvoiceRow.RowId));
+                                          Notify("Row saved", NotificationType.Success)
+                                      )
+                                    PaddingBottom: =5
+                                    PaddingLeft: =12
+                                    PaddingRight: =12
+                                    PaddingTop: =5
+                                    RadiusBottomLeft: =4
+                                    RadiusBottomRight: =4
+                                    RadiusTopLeft: =4
+                                    RadiusTopRight: =4
                                     Text: |-
                                       ="💾 Save Row"
+                                    VerticalAlign: =VerticalAlign.Middle
                                     Width: =140
-                        - btnRemoveRow:
-                            Control: Button@0.0.45
-                            Properties:
-                              Height: =36
-                              OnSelect: |-
-                                =Remove(colInvoiceParseResults, LookUp(colInvoiceParseResults, RowId = gSelectedInvoiceRow.RowId));
-                                Set(gSelectedInvoiceRow, Blank())
-                              Text: |-
-                                ="🗑 Remove"
-                              Width: =140
+                                    X: =40
+                                    Y: =40

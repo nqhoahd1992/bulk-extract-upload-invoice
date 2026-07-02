@@ -14,8 +14,8 @@ App:
       Set(gSelectedBatch, Blank());
       Set(gInvoiceParseBatchID, Blank());
       Set(gSelectedInvoiceRow, Blank());
-      Set(gDefaultCostCenter, Blank());
       Set(gParsingInvoice, false);
+      Set(gProcessingBatch, false);
       Set(gParsingCurrent, 0);
       Set(gParsingTotal, 0);
       Set(gFinalizing, false);
