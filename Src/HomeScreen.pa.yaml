@@ -144,7 +144,7 @@ Screens:
                               Text: |-
                                 ="Uploaded " & Text(ThisItem.UploadedAt, "yyyy-mm-dd hh:mm") & " · " &
                                 If(
-                                    CountRows(ThisItem.Attachments) = 0 && ThisItem.Status.Value = "Finalized",
+                                    ThisItem.Status.Value = "Finalized",
                                     "all files processed",
                                     CountRows(ThisItem.Attachments) & " file(s) to process"
                                 )

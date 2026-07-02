@@ -4,8 +4,10 @@ Flow mới cần tạo trong Power Automate cho app **invoice-batch-app**, gọi
 `Src/BatchUploadScreen.pa.yaml` (nút "✅ Done", bên trong `ForAll(colInvoiceParseResults, Finalize_Invoice.Run(...))`).
 
 Vai trò: nhận 1 hóa đơn đã được người dùng review/sửa trong `colInvoiceParseResults`,
-copy file đính kèm sang đúng SharePoint Library theo Cost Center, ghi metadata lên
-chính item đó, rồi xóa attachment gốc khỏi `BEUI_InvoiceBatch_Requests`.
+copy file đính kèm sang đúng SharePoint Library theo Cost Center, **tạo 1 record chứa
+dữ liệu extract trong list `Procurement_InvoiceData`** (list dùng chung với
+`procurement-procedure`, KHÔNG ghi metadata lên library nữa), rồi xóa attachment gốc
+khỏi `BEUI_InvoiceBatch_Requests`.
 
 Được gọi **tuần tự, 1 lần cho mỗi hóa đơn** trong batch (nếu batch có 10 file thì
 chạy 10 lần) — mọi thiết kế bên dưới phải an toàn khi chạy lặp lại nhiều lần trên
@@ -13,29 +15,36 @@ cùng 1 batch record.
 
 ## A. Việc cần làm trước trong SharePoint (thủ công, trước khi build flow)
 
-Thêm **cùng một bộ cột metadata** vào cả 4 library đích: `AU_Invoices`, `MY_Invoices`,
-`SG_Invoices`, `VN_Invoices` (hiện chưa có cột tùy chỉnh nào).
+**KHÔNG thêm cột nào vào 4 library đích nữa.** `AU_Invoices`, `MY_Invoices`,
+`SG_Invoices`, `VN_Invoices` chỉ dùng để chứa file — không cần cột tùy chỉnh.
 
-| Tên cột | Kiểu | Nguồn dữ liệu |
+Thay vào đó, dữ liệu extract được ghi thành **1 record trong list dùng chung
+`Procurement_InvoiceData`** (GUID `3a7218e7-e10f-406a-9a8a-d4cbbb2ea82c`, cùng site
+`/sites/Powerapps`) — chính list mà flow `Submit_Invoice` bên `procurement-procedure`
+đang dùng.
+
+List này **đã có sẵn** các cột: `Title`, `RequestID` (Lookup→Procurement_Requests),
+`RequestIDText` (Text), `InvoiceNumber`, `InvoiceDate`, `VendorName`, `BilledTo`,
+`Attention`, `Description`, `TotalAmount`, `GSTAmount`, `Currency`, `ParsedAt`,
+`InvoiceLink`, `ABN`.
+
+**Cần thêm 4 cột mới** vào `Procurement_InvoiceData` (cột optional, không phá vỡ
+`procurement-procedure` vì flow cũ chỉ bỏ trống các cột này):
+
+| Tên cột (thêm mới) | Kiểu | Nguồn dữ liệu |
 |---|---|---|
-| `InvoiceNumber` | Single line text | InvoiceNumberEdit |
-| `InvoiceDate` | Single line text | InvoiceDateEdit |
-| `VendorName` | Single line text | SupplierNameEdit |
-| `BilledTo` | Single line text | BilledToEdit |
-| `ABN` | Single line text | ABNEdit |
-| `Attention` | Single line text | AttentionEdit |
-| `InvoiceDescription` | Single line text | DescriptionEdit (User nhập trong app, parse không trả về). **KHÔNG đặt tên cột là `Description`** — document library có field ẩn trùng tên nên internal name sẽ bị đổi thành `Description0`, gây lỗi `The property 'Description' does not exist` khi MERGE. Tạo với tên `InvoiceDescription` (internal name chốt lúc tạo), sau đó muốn thì đổi display name thành "Description" |
-| `TotalAmount` | Currency/Number | TotalAmountEdit |
-| `GSTAmount` | Currency/Number | TaxAmountEdit |
-| `Currency` | Single line text | CurrencyEdit |
-| `CostCenter` | Choice (giống cột `CostCenter` của `BEUI_InvoiceBatch_Requests`) | CostCenterEdit / gDefaultCostCenter |
-| `BatchID` | Number | gSelectedBatch.ID |
-| `ConfidenceScore` | Number | ConfidenceScore |
-| `ParsedAt` | Date and Time | `utcNow()` (tính trong flow) |
+| `CostCenter` | Choice (cùng các giá trị Australia/Malaysia/Singapore/Vietnam như `BEUI_InvoiceBatch_Requests`) | text_7 (CostCenterEdit / ddDefaultCostCenter) |
+| `BatchID` | Number | number (gSelectedBatch.ID) |
+| `ConfidenceScore` | Number | number_3 (ConfidenceScore) |
+| `Origin` | Single line text | Hằng số — tên app ghi record. Flow này set cố định `"invoice-batch-app"`. Dùng để phân biệt record do app nào tạo (procurement flow cũ để trống hoặc set tên riêng). |
 
-`BatchID` dùng plain Number (không phải Lookup column thật) để đơn giản hóa —
-giống cách `RequestIDText` được dùng như bản sao text của lookup trong
-`Procurement_InvoiceData` bên `procurement-procedure`.
+**Lưu ý về `RequestID` / `BatchID`:** cột `RequestID` là Lookup trỏ tới
+`Procurement_Requests` — app này KHÔNG có record trong đó (BatchID thuộc list khác
+`BEUI_InvoiceBatch_Requests`). Vì vậy flow **không set `item/RequestID/Id`** (set sai
+sẽ tạo lookup hỏng / lỗi runtime). Liên kết ngược về batch dùng:
+- cột `BatchID` (Number) mới thêm, và
+- `RequestIDText` (Text, đã có sẵn) = BatchID ở dạng text, giữ đúng vai trò "text join
+  key" như bên `procurement-procedure`.
 
 ## B. Trigger input của Finalize_Invoice
 
@@ -109,36 +118,70 @@ kiểu `Blank` vì không được set type rõ ràng lúc tạo, gây lỗi
      `overwrite`**, nên vẫn fail `"A file with the name ... already exists"`
      dù code view có `"overwrite": true`. Chunking chỉ cần cho file >100MB —
      hóa đơn PDF vài chục KB không bao giờ cần. KHÔNG bật lại.
-   - Lưu ý hệ quả: mỗi lần finalize tạo **2 version** trên file (CreateFile ghi
-     nội dung + bước 6 MERGE ghi metadata) — bình thường, hữu ích khi audit.
-     Nếu sau này cần gộp còn 1 version thì đổi bước 6 sang endpoint
-     `ValidateUpdateListItem` với `bNewDocumentUpdate: true`.
+   - Lưu ý hệ quả: dữ liệu extract KHÔNG còn ghi lên library nữa nên file chỉ có
+     **1 version** (chỉ CreateFile). Metadata đi vào record của
+     `Procurement_InvoiceData` ở bước 5.
 
-5. **Get_New_File_Item_Id** — HttpRequest GET tới:
-   ```
-   _api/web/GetFileByServerRelativePath(decodedurl='/sites/Powerapps/@{variables('TargetLibrary')}/@{triggerBody()?['text_1']}')/ListItemAllFields?$select=Id
-   ```
+5. **Create_InvoiceData_Item** — SharePoint **PostItem** (Create item), KHÔNG dùng
+   HttpRequest MERGE nữa. Đây là action giống hệt `Procurement_InvoiceData` trong
+   `Submit_Invoice`, chỉ đổi lại phần map tham số cho đúng thứ tự trigger của flow này.
+   - `dataset`: `https://maxbiocare.sharepoint.com/sites/Powerapps`
+   - `table`: `3a7218e7-e10f-406a-9a8a-d4cbbb2ea82c` (GUID của `Procurement_InvoiceData`)
+   - Map các trường (dùng thứ tự trigger của **Finalize_Invoice** ở mục B — **KHÁC**
+     thứ tự của `Submit_Invoice`, không được copy nguyên si):
 
-6. **Update_Invoice_Metadata** — HttpRequest POST (MERGE) tới:
-   ```
-   _api/web/lists/getbytitle('@{variables('TargetLibrary')}')/items(@{body('Get_New_File_Item_Id')?['Id']})
-   ```
-   Header: `X-HTTP-Method: MERGE`, `IF-MATCH: *`,
-   `Content-Type: application/json;odata=nometadata`.
-   Body JSON set toàn bộ 14 cột ở mục A, map trực tiếp từ `triggerBody()`, cộng
-   `ParsedAt: @{utcNow()}`.
+   | item/... | Giá trị | Ghi chú |
+   |---|---|---|
+   | `Title` | `@{triggerBody()?['text_1']}` | đã gồm extension — **không** nối thêm `.ext` như `Submit_Invoice` cũ |
+   | `InvoiceNumber` | `@triggerBody()?['text_2']` | |
+   | `InvoiceDate` | `@if(empty(triggerBody()?['text_3']), null, formatDateTime(if(startsWith(triggerBody()?['text_3'], '/'), substring(triggerBody()?['text_3'], 1, sub(length(triggerBody()?['text_3']), 1)), triggerBody()?['text_3']), 'yyyy-MM-dd'))` | cột kiểu **Date**, phải chuẩn hoá — xem cảnh báo dưới bảng |
+   | `VendorName` | `@triggerBody()?['text_4']` | SupplierName |
+   | `BilledTo` | `@triggerBody()?['text_5']` | |
+   | `TotalAmount` | `@triggerBody()?['number_1']` | |
+   | `GSTAmount` | `@triggerBody()?['number_2']` | TaxAmount |
+   | `Currency` | `@triggerBody()?['text_6']` | |
+   | `Attention` | `@triggerBody()?['text_8']` | |
+   | `ABN` | `@triggerBody()?['text_9']` | |
+   | `Description` | `@triggerBody()?['text_10']` | |
+   | `CostCenter/Value` | `@triggerBody()?['text_7']` | cột Choice → set qua `item/CostCenter/Value` |
+   | `BatchID` | `@triggerBody()?['number']` | cột Number mới |
+   | `ConfidenceScore` | `@triggerBody()?['number_3']` | cột Number mới |
+   | `RequestIDText` | `@{triggerBody()?['number']}` | BatchID dạng text (join key) |
+   | `Origin` | `invoice-batch-app` | hằng số cố định |
+   | `InvoiceLink` | `@concat('https://maxbiocare.sharepoint.com/sites/Powerapps/', variables('TargetLibrary'), '/', triggerBody()?['text_1'])` | |
+   | `ParsedAt` | `@utcNow()` | |
 
-   **Cảnh báo (lỗi đã gặp thật):** trong Body, mọi giá trị Text/DateTime phải
-   được bọc trong dấu nháy kép — `"VendorName": "@{triggerBody()?['text_4']}"`,
-   KHÔNG phải `"VendorName": @{triggerBody()?['text_4']}`. Thiếu nháy sẽ gây
-   400 `InvalidClientQueryException: Invalid JSON. A token was not recognized`.
-   Chỉ 4 trường số (`TotalAmount`, `GSTAmount`, `BatchID`, `ConfidenceScore`)
-   là không có nháy. Đồng thời app phải bật **Formula-level error management**
-   (Settings → Updates) thì `IfError` quanh `Finalize_Invoice.Run(...)` trong
-   `btnDone` mới bắt được lỗi flow — nếu tắt, app sẽ coi run lỗi là thành công
-   và đánh dấu `IsFinalized` sai.
+   - **KHÔNG set `item/RequestID/Id`** — lookup này trỏ tới `Procurement_Requests`,
+     BatchID không phải id hợp lệ ở đó (xem mục A).
+   - **⚠ `InvoiceDate` là cột Date (lỗi đã gặp thật):** map thô `@triggerBody()?['text_3']`
+     sẽ fail `Input parameter 'item/InvoiceDate' is required to be of type 'String/date'`
+     khi AI trả date lệch định dạng (vd `"/2026-06-12"` có `/` thừa đầu chuỗi). Phải bọc
+     bằng biểu thức chuẩn hoá ở bảng trên: bỏ `/` thừa rồi `formatDateTime(..., 'yyyy-MM-dd')`,
+     và trả `null` khi trống để không làm hỏng cả action. `ParsedAt` (cũng Date/Time) dùng
+     `@utcNow()` nên luôn hợp lệ, không cần xử lý.
+   - **Ưu điểm so với MERGE cũ:** PostItem truyền giá trị qua tham số connector, KHÔNG
+     ghép JSON thủ công → **không còn bẫy thiếu dấu nháy kép** gây 400
+     `InvalidClientQueryException` như phương án MERGE. Bỏ luôn được bước
+     `Get_New_File_Item_Id` (không cần Id của file trên library nữa).
+   - **Vẫn cần bật Formula-level error management** (Settings → Updates) trong app thì
+     `IfError` quanh `Finalize_Invoice.Run(...)` ở `btnDone` mới bắt được lỗi flow —
+     nếu tắt, app sẽ coi run lỗi là thành công và đánh dấu `IsFinalized` sai.
 
-7. **Delete_Source_Attachment** — HttpRequest POST (X-HTTP-Method: DELETE),
+   **⚠ Bẫy idempotency mới (khác hẳn MERGE):** MERGE cũ ghi đè cùng 1 item library nên
+   chạy lại nhiều lần vẫn ra 1 kết quả. PostItem thì **mỗi lần chạy tạo 1 record MỚI** →
+   nếu 1 hóa đơn được finalize lại (ví dụ file CreateFile xong nhưng Delete lỗi, user bấm
+   Done lại) sẽ sinh **record trùng** trong `Procurement_InvoiceData`. Hai cách xử lý:
+   - **(Khuyến nghị, dựa vào app)** App đã `Patch(... {IsFinalized: true})` sau khi Run
+     thành công. Chỉ cần `ForAll` ở `btnDone` lọc `IsFinalized = false` (hoặc kiểm tra cờ
+     trước khi gọi) là hóa đơn đã xong sẽ không chạy lại → không trùng. Đây là tuyến
+     phòng thủ chính, gần như đủ dùng.
+   - **(Chốt chặn trong flow, tùy chọn)** Thêm trước PostItem 1 action **Get items** trên
+     `Procurement_InvoiceData` với filter `BatchID eq @{triggerBody()?['number']} and
+     Title eq '@{triggerBody()?['text_1']}'`, rồi bọc PostItem trong **Condition**
+     `length(...) is equal to 0`. Chỉ tạo record khi chưa tồn tại. Dùng nếu muốn an toàn
+     tuyệt đối kể cả khi cờ `IsFinalized` bị lệch.
+
+6. **Delete_Source_Attachment** — HttpRequest POST (X-HTTP-Method: DELETE),
    KHÔNG dùng action connector "Delete attachment" (lỗi đã gặp thật: connector
    resolve File Identifier dạng tên trần thành đường dẫn từ gốc site
    `/sites/Powerapps/<tên file>` → "file does not exist"). Gọi REST trực tiếp:
@@ -159,7 +202,7 @@ kiểu `Blank` vì không được set type rõ ràng lúc tạo, gây lỗi
    kết quả cuối cùng vẫn là toàn bộ attachments đã được xóa — nhưng an toàn theo
    từng bước.
 
-8. **Response** (tùy chọn) — trả về:
+7. **Response** (tùy chọn) — trả về:
    ```
    newInvoiceLink = concat('https://maxbiocare.sharepoint.com/sites/Powerapps/', variables('TargetLibrary'), '/', triggerBody()?['text_1'])
    ```
