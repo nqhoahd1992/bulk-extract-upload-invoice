@@ -706,13 +706,26 @@ Screens:
                                     PaddingRight: =8
                                     Size: =8
                                     Text: |-
+                                      =With(
+                                          {
+                                              fullSubtitle: If(
+                                                  ThisItem.ParseError,
+                                                  "❌ Parse failed - retry, fix manually, or remove to continue",
+                                                  ThisItem.SupplierNameEdit & " · " & ThisItem.TotalAmountEdit & " " & ThisItem.CurrencyEdit &
+                                                  " · CC: " & Coalesce(ThisItem.CostCenterEdit, ddDefaultCostCenter.Selected.Value)
+                                              )
+                                          },
+                                          If(Len(fullSubtitle) > 60, Left(fullSubtitle, 60) & "…", fullSubtitle)
+                                      )
+                                    Tooltip: |-
                                       =If(
                                           ThisItem.ParseError,
-                                          "❌ Parse failed - retry, fix manually, or remove to continue",
+                                          "",
                                           ThisItem.SupplierNameEdit & " · " & ThisItem.TotalAmountEdit & " " & ThisItem.CurrencyEdit &
                                           " · CC: " & Coalesce(ThisItem.CostCenterEdit, ddDefaultCostCenter.Selected.Value)
                                       )
                                     Width: =Parent.Width - 22
+                                    Wrap: =false
                                     X: =1
                                     Y: =28
                               - lblInvoiceRowTitle:
@@ -722,8 +735,14 @@ Screens:
                                     Height: =18
                                     PaddingLeft: =8
                                     Size: =9
-                                    Text: =If(ThisItem.ParseError, "⚠ ", If(ThisItem.IsSaved, "✔ ", "")) & ThisItem.FileName
+                                    Text: |-
+                                      =With(
+                                          {fullTitle: If(ThisItem.ParseError, "⚠ ", If(ThisItem.IsSaved, "✔ ", "")) & ThisItem.FileName},
+                                          If(Len(fullTitle) > 45, Left(fullTitle, 45) & "…", fullTitle)
+                                      )
+                                    Tooltip: =ThisItem.FileName
                                     Width: =Parent.Width - 22
+                                    Wrap: =false
                                     X: =1
                                     Y: =13
                   - rowInvoiceDetail:
