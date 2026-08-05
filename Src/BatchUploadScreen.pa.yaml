@@ -305,7 +305,7 @@ Screens:
                                   Properties:
                                     DefaultSelectedItems: =["Review each invoice"]
                                     Height: =40
-                                    Items: =["Automatic (no review)", "Review each invoice"]
+                                    Items: =["Review each invoice", "Automatic (no review)"]
                                     Layout: ='RadioGroupCanvas.Layout'.Horizontal
                                     Width: =Parent.Width
                   - formBatchUpload:
@@ -358,7 +358,7 @@ Screens:
                                                   ParseError: IsBlank(wResult),
                                                   IsSaved: false,
                                                   IsFinalized: false,
-                                                  CostCenterEdit: "",
+                                                  CostCenterEdit: ddDefaultCostCenter.Selected.Value,
                                                   DescriptionEdit: "",
                                                   JobId: wResult.jobId,
                                                   ConfidenceScore: Value(wResult.confidenceScore),
@@ -430,8 +430,6 @@ Screens:
                         LayoutMinHeight: =16
                         LayoutMinWidth: =16
                         PaddingBottom: =8
-                        PaddingLeft: =8
-                        PaddingRight: =8
                         PaddingTop: =18
                       Children:
                         - btnUploadParse:
@@ -871,14 +869,14 @@ Screens:
                                             )
                                           FontWeight: =""
                                           Height: =36
-                                          InputTextPlaceholder: ="Inherit default"
+                                          InputTextPlaceholder: ="Choose a cost center"
                                           ItemDisplayText: =ThisItem.Value
                                           Items: =Choices(BEUI_InvoiceBatch_Requests.CostCenter)
                                           OnChange: |-
                                             =Patch(
                                                 colInvoiceParseResults,
                                                 LookUp(colInvoiceParseResults, RowId = gSelectedInvoiceRow.RowId),
-                                                {CostCenterEdit: If(IsBlank(Self.Selected), "", Self.Selected.Value)}
+                                                {CostCenterEdit: If(IsBlank(Self.Selected), ddDefaultCostCenter.Selected.Value, Self.Selected.Value)}
                                             );
                                             Set(gSelectedInvoiceRow, LookUp(colInvoiceParseResults, RowId = gSelectedInvoiceRow.RowId))
                                           SelectMultiple: =false
