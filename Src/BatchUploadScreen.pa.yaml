@@ -914,7 +914,7 @@ Screens:
                                           FontWeight: =""
                                           Height: =36
                                           MaxLength: =-1
-                                          Placeholder: =""
+                                          Placeholder: ="yyyy-mm-dd (e.g. 2026-08-06)"
                                           Size: =0
                                           TriggerOutput: =TriggerOutput.FocusOut
                                           Width: =Parent.Width - 10
@@ -1069,7 +1069,7 @@ Screens:
                                           FontWeight: =""
                                           Height: =36
                                           MaxLength: =-1
-                                          Placeholder: =""
+                                          Placeholder: ="0.00 (e.g. 100.00)"
                                           Size: =0
                                           TriggerOutput: =TriggerOutput.FocusOut
                                           Width: =Parent.Width - 10
@@ -1103,7 +1103,7 @@ Screens:
                                           FontWeight: =""
                                           Height: =36
                                           MaxLength: =-1
-                                          Placeholder: =""
+                                          Placeholder: ="0.00 (e.g. 10.00)"
                                           Size: =0
                                           TriggerOutput: =TriggerOutput.FocusOut
                                           Width: =Parent.Width - 10
@@ -1337,16 +1337,22 @@ Screens:
                                       =If(
                                           IsBlank(txtDetailInvoiceDate.Text) || IsBlank(txtDetailSupplierName.Text) || IsBlank(txtDetailBilledTo.Text) || IsBlank(txtDetailInvoiceNumber.Text) || IsBlank(txtDetailTotalAmount.Text) || IsBlank(txtDetailCurrency.Text) || (rdoProcessingMode.Selected.Value = "Review each invoice" && IsBlank(txtDetailDescription.Text)),
                                           Notify("Please fill in all required fields (*) before saving.", NotificationType.Error),
+                                          Not(IsMatch(Trim(txtDetailInvoiceDate.Text), "^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")),
+                                          Notify("Invoice Date must be in yyyy-mm-dd format (e.g. 2026-08-06).", NotificationType.Error),
+                                          Not(IsMatch(Trim(txtDetailTotalAmount.Text), "^\d+\.\d{2}$")),
+                                          Notify("Total Amount must be a number with exactly 2 decimals (e.g. 100.00).", NotificationType.Error),
+                                          Not(IsBlank(Trim(txtDetailTaxAmount.Text))) && Not(IsMatch(Trim(txtDetailTaxAmount.Text), "^\d+\.\d{2}$")),
+                                          Notify("GST / Tax must be a number with exactly 2 decimals (e.g. 10.00).", NotificationType.Error),
                                           Patch(
                                               colInvoiceParseResults,
                                               LookUp(colInvoiceParseResults, RowId = gSelectedInvoiceRow.RowId),
                                               {
-                                                  InvoiceDateEdit: txtDetailInvoiceDate.Text,
+                                                  InvoiceDateEdit: Trim(txtDetailInvoiceDate.Text),
                                                   SupplierNameEdit: txtDetailSupplierName.Text,
                                                   BilledToEdit: txtDetailBilledTo.Text,
                                                   InvoiceNumberEdit: txtDetailInvoiceNumber.Text,
-                                                  TotalAmountEdit: txtDetailTotalAmount.Text,
-                                                  TaxAmountEdit: txtDetailTaxAmount.Text,
+                                                  TotalAmountEdit: Trim(txtDetailTotalAmount.Text),
+                                                  TaxAmountEdit: Trim(txtDetailTaxAmount.Text),
                                                   CurrencyEdit: txtDetailCurrency.Text,
                                                   AttentionEdit: txtDetailAttention.Text,
                                                   ABNEdit: txtDetailABN.Text,
