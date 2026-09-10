@@ -190,10 +190,27 @@ kiểu `Blank` vì không được set type rõ ràng lúc tạo, gây lỗi
    ```
    Header: `Accept: application/json;odata=nometadata`, `X-HTTP-Method: DELETE`.
    Tên gốc suy ra từ URL — **KHÔNG dùng `text_1`** (`text_1` là tên mới theo
-   naming convention, không trùng tên gốc), nhân đôi dấu nháy đơn nếu có:
+   naming convention, không trùng tên gốc):
    ```
-   replace(uriComponentToString(last(split(outputs('Compose_File_Path'), '/'))), '''', '''''')
+   replace(replace(last(split(outputs('Compose_File_Path'), '/')), '%27', '%27%27'), '''', '''''')
    ```
+
+   **⚠ KHÔNG bọc `uriComponentToString()` quanh đoạn tên file (lỗi đã gặp thật: 404
+   trả về dưới vỏ `statusCode: 401`).** `Compose_File_Path` ở bước 1 cố ý giữ tên file
+   ở dạng đã percent-encode, đặc biệt `#` → `%23`. Decode ngược lại sẽ nhét một `#`
+   thô vào URL; `#` mở đầu fragment nên SharePoint chỉ nhận được phần đứng trước nó
+   và trả 404 (`Requested URL: .../getByFileName('Southland Order`) với attachment tên
+   `Southland Order # 1000051922.pdf`. Giữ nguyên chuỗi đã encode: IIS decode đúng một
+   lần trước khi OData parse, nên `getByFileName('...%23...')` khớp đúng tên thật.
+   Cùng lý do đó, dấu nháy đơn phải nhân đôi ở **cả hai dạng** — `%27` (dạng SharePoint
+   hay encode) và `'` thô — vì cả hai đều thành `'` sau khi decode và sẽ đóng sớm
+   string literal.
+
+   Đường khác nếu vẫn vướng encode: dùng lại đúng pattern đã chứng minh chạy được ở
+   `Get_Attachment_Content` —
+   `_api/web/GetFileByServerRelativePath(decodedurl='@{outputs('Compose_File_Path')}')`
+   với `X-HTTP-Method: DELETE`, xóa thẳng file attachment theo đường dẫn đầy đủ, khỏi
+   phải cắt tên file ra khỏi path.
 
    Chỉ xóa **đúng 1 attachment vừa xử lý**, không xóa toàn bộ attachments của
    record — vì flow này chạy tuần tự nhiều lần trong cùng 1 `ForAll` ở
