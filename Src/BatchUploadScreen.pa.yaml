@@ -339,12 +339,21 @@ Screens:
                                       CostCenter: {Value: ddDefaultCostCenter.Selected.Value}
                                   }
                               );
+                              Refresh(BEUI_InvoiceBatch_Requests);
+                              ClearCollect(
+                                  colSavedUploadNames,
+                                  Filter(
+                                      LookUp(BEUI_InvoiceBatch_Requests, ID = gSelectedBatch.ID).Attachments,
+                                      Not(DisplayName in colBaselineAttachmentNames.Name)
+                                  )
+                              );
                               ForAll(
-                                  colPendingUploadNames,
+                                  colSavedUploadNames,
                                   With(
                                       {
-                                          wURL: gSharePointAttachmentBase & Text(gSelectedBatch.ID) & "/" & EncodeUrl(Name),
-                                          wBase: Left(Name, Len(Name) - Len("." & Last(Split(Name, ".")).Value))
+                                          wName: DisplayName,
+                                          wURL: gSharePointAttachmentBase & Text(gSelectedBatch.ID) & "/" & EncodeUrl(DisplayName),
+                                          wBase: Left(DisplayName, Len(DisplayName) - Len("." & Last(Split(DisplayName, ".")).Value))
                                       },
                                       With(
                                           {wResult: IfError(Parse_Invoice.Run(wURL, gSelectedBatch.ID), Blank())},
@@ -352,7 +361,7 @@ Screens:
                                               colInvoiceParseResults,
                                               {
                                                   RowId: CountRows(colInvoiceParseResults) + 1,
-                                                  FileName: Name,
+                                                  FileName: wName,
                                                   FileNameBase: wBase,
                                                   InvoiceURL: wURL,
                                                   ParseError: IsBlank(wResult),
